@@ -206,3 +206,12 @@ export const UpdateAppointmentSchema = CreateAppointmentSchema.partial().extend(
 export type UpdateAppointmentInput = z.infer<typeof UpdateAppointmentSchema>;
 
 // ====================================================================
+// 7. Care Assistant Schemas
+// ====================================================================
+
+export const AssistantChatSchema = z.object({
+  message: z.string().min(1, 'Message query cannot be empty'),
+  stream: z.boolean().default(false),
+});
+
+export type AssistantChatInput = z.infer<typeof AssistantChatSchema>;
