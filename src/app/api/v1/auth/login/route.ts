@@ -40,10 +40,15 @@ export async function POST(req: NextRequest) {
       console.warn('[Login API] Supabase Auth sign-in fallback:', err);
     }
 
-    // 2. Query user profile
-    const profile = await prisma.profile.findFirst({
-      where: { email },
-    });
+    // 2. Query user profile from database if connected
+    let profile = null;
+    try {
+      profile = await prisma.profile.findFirst({
+        where: { email },
+      });
+    } catch (err) {
+      console.warn('[Login API] Database connection skipped/offline demo mode:', err);
+    }
 
     if (profile) {
       return NextResponse.json(
@@ -51,7 +56,7 @@ export async function POST(req: NextRequest) {
           token: sessionToken || `demo-token-${profile.id}`,
           user: {
             id: profile.id,
-            email: profile.email,
+            email: profile.email || email,
             fullName: profile.fullName,
             preferredName: profile.preferredName,
             role: profile.role,

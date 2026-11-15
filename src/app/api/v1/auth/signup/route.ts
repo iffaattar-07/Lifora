@@ -46,26 +46,38 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Upsert profile in local database
-    const profile = await prisma.profile.upsert({
-      where: { email },
-      update: {
-        fullName,
-        preferredName,
-        role,
-        phone,
-        timezone,
-      },
-      create: {
-        id: supabaseUserId || undefined,
+    let profile = null;
+    try {
+      profile = await prisma.profile.upsert({
+        where: { email },
+        update: {
+          fullName,
+          preferredName,
+          role,
+          phone,
+          timezone,
+        },
+        create: {
+          id: supabaseUserId || undefined,
+          email,
+          fullName,
+          preferredName,
+          role,
+          phone,
+          timezone,
+          avatarUrl: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(preferredName)}`,
+        },
+      });
+    } catch (err) {
+      console.warn('[Signup API] Database offline demo mode fallback:', err);
+      profile = {
+        id: supabaseUserId || `user-${Date.now()}`,
         email,
         fullName,
         preferredName,
         role,
-        phone,
-        timezone,
-        avatarUrl: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(preferredName)}`,
-      },
-    });
+      };
+    }
 
     return NextResponse.json(
       createSuccessResponse({
