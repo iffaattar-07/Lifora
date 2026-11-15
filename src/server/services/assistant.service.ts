@@ -26,7 +26,7 @@ export class AssistantService {
     const isUnsafeDiagnosisRequest =
       query.includes('diagnose') ||
       query.includes('what disease') ||
-      query.includes('do i have') ||
+      /\bdo i have (cancer|a disease|a condition|an infection|diabetes|parkinson|alzheimer|dementia|covid|flu|pneumonia|heart disease|hypertension|high blood pressure)\b/i.test(query) ||
       query.includes('is this a heart attack') ||
       query.includes('is this cancer') ||
       query.includes('what is wrong with me');
@@ -120,46 +120,34 @@ export class AssistantService {
     // 3. CONTEXT-AWARE INTENT ROUTING
     // ==================================================================
 
-    // Query 1: Medications left / pills schedule
+    // Query Category 1: Food / Meal / Water Instructions
     if (
-      query.includes('medication') ||
-      query.includes('pill') ||
-      query.includes('dose') ||
-      query.includes('left') ||
-      query.includes('schedule') ||
-      query.includes('next')
+      query.includes('food') ||
+      query.includes('eat') ||
+      query.includes('meal') ||
+      query.includes('water') ||
+      query.includes('stomach') ||
+      query.includes('hungry')
     ) {
-      if (pendingDoses.length === 0) {
-        return {
-          reply: `Wonderful news, ${preferredName}! You have already completed all scheduled doses for today (${takenDoses.length} completed). You have no pending medications right now.`,
-          suggestedActions: [
-            { label: 'View All Medications', action: 'view_meds' },
-            { label: 'Check Appointments', action: 'check_appointments' },
-          ],
-        };
-      }
-
-      const list = pendingDoses
-        .map((d) => `• ${d.medicationName} (${d.dosage}) scheduled for ${d.scheduledTime}${d.instructions ? ` - ${d.instructions}` : ''}`)
+      const foodRules = medications
+        .map((m) => `• ${m.name} (${m.dosage}): ${m.withFood === 'with' ? 'Take WITH meals' : m.withFood === 'after' ? 'Take AFTER meals' : 'Take anytime with water'} (${m.instructions})`)
         .join('\n');
 
       return {
-        reply: `${preferredName}, you have ${pendingDoses.length} dose${pendingDoses.length > 1 ? 's' : ''} remaining for today:\n\n${list}\n\nYour immediate next dose is ${pendingDoses[0].medicationName} at ${pendingDoses[0].scheduledTime}.`,
-        suggestedActions: [
-          { label: 'I Took This Now', action: 'mark_next_dose_taken' },
-          { label: 'Read Aloud', action: 'speak_text' },
-        ],
+        reply: `Here are the meal instructions for your active prescriptions:\n\n${foodRules}\n\nAlways drink a full glass of water with your tablets to assist smooth absorption.`,
+        suggestedActions: [{ label: 'Check Today’s Meds', action: 'check_meds' }],
       };
     }
 
-    // Query 2: Appointments / Doctor visits
+    // Query Category 2: Appointments / Doctor visits
     if (
       query.includes('appointment') ||
       query.includes('doctor') ||
       query.includes('visit') ||
       query.includes('clinic') ||
       query.includes('dr.') ||
-      query.includes('hayes')
+      query.includes('hayes') ||
+      query.includes('hospital')
     ) {
       if (nextApt) {
         const dateStr = new Date(nextApt.appointmentDate).toLocaleDateString('en-US', {
@@ -182,21 +170,37 @@ export class AssistantService {
       };
     }
 
-    // Query 3: Food / Meal Instructions
+    // Query Category 3: Medications left / pills schedule
     if (
-      query.includes('food') ||
-      query.includes('eat') ||
-      query.includes('meal') ||
-      query.includes('water') ||
-      query.includes('stomach')
+      query.includes('medication') ||
+      query.includes('pill') ||
+      query.includes('dose') ||
+      query.includes('left') ||
+      query.includes('schedule') ||
+      query.includes('next') ||
+      query.includes('medicine') ||
+      query.includes('prescription')
     ) {
-      const foodRules = medications
-        .map((m) => `• ${m.name} (${m.dosage}): ${m.withFood === 'with' ? 'Take WITH meals' : m.withFood === 'after' ? 'Take AFTER meals' : 'Take anytime with water'} (${m.instructions})`)
+      if (pendingDoses.length === 0) {
+        return {
+          reply: `Wonderful news, ${preferredName}! You have already completed all scheduled doses for today (${takenDoses.length} completed). You have no pending medications right now.`,
+          suggestedActions: [
+            { label: 'View All Medications', action: 'view_meds' },
+            { label: 'Check Appointments', action: 'check_appointments' },
+          ],
+        };
+      }
+
+      const list = pendingDoses
+        .map((d) => `• ${d.medicationName} (${d.dosage}) scheduled for ${d.scheduledTime}${d.instructions ? ` - ${d.instructions}` : ''}`)
         .join('\n');
 
       return {
-        reply: `Here are the meal instructions for your active prescriptions:\n\n${foodRules}\n\nAlways drink a full glass of water with your tablets to assist smooth absorption.`,
-        suggestedActions: [{ label: 'Check Today’s Meds', action: 'check_meds' }],
+        reply: `${preferredName}, you have ${pendingDoses.length} dose${pendingDoses.length > 1 ? 's' : ''} remaining for today:\n\n${list}\n\nYour immediate next dose is ${pendingDoses[0].medicationName} at ${pendingDoses[0].scheduledTime}.`,
+        suggestedActions: [
+          { label: 'I Took This Now', action: 'mark_next_dose_taken' },
+          { label: 'Read Aloud', action: 'speak_text' },
+        ],
       };
     }
 
