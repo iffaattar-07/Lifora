@@ -147,27 +147,34 @@ export function Navbar() {
 
             {/* Right Controls: Role Selector, Notifications & Profile */}
             <div className="flex items-center gap-3">
-              {/* Role Toggle Pill */}
-              <div className="hidden sm:flex items-center bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs">
+              {/* Role Toggle Pill (Perspective Switcher) */}
+              <div 
+                className="hidden sm:flex items-center bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs shadow-inner"
+                title="Perspective Switcher (Demo View Mode - switches dashboard interface)"
+              >
                 <button
                   onClick={() => setActiveRole('elderly')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition ${
                     activeRole === 'elderly'
-                      ? 'bg-white text-teal-900 shadow-sm font-semibold'
+                      ? 'bg-white text-teal-950 shadow-sm border border-stone-200'
                       : 'text-stone-600 hover:text-stone-900'
                   }`}
                 >
-                  <User className="w-3.5 h-3.5" />
-                  <span>Senior View</span>
+                  <User className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Senior (Margaret)</span>
                 </button>
                 <button
                   onClick={() => setActiveRole('family')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition ${
                     activeRole === 'family' || activeRole === 'caretaker'
-                      ? 'bg-teal-800 text-white shadow-sm font-semibold'
+                      ? 'bg-teal-800 text-white shadow-sm'
                       : 'text-stone-600 hover:text-stone-900'
                   }`}
                 >
+                  <Users className="w-3.5 h-3.5 text-teal-200" />
+                  <span>Caregiver (Sarah)</span>
+                </button>
+              </div>
                   <Users className="w-3.5 h-3.5" />
                   <span>Family & Caregiver</span>
                 </button>
@@ -260,15 +267,15 @@ export function Navbar() {
               <div className="flex gap-2">
                 <button
                   onClick={() => setActiveRole('elderly')}
-                  className={`text-xs px-2.5 py-1 rounded-md ${activeRole === 'elderly' ? 'bg-teal-800 text-white' : 'bg-stone-100 text-stone-700'}`}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-lg transition ${activeRole === 'elderly' ? 'bg-teal-900 text-white' : 'bg-stone-100 text-stone-700'}`}
                 >
-                  Senior
+                  Senior (Margaret)
                 </button>
                 <button
                   onClick={() => setActiveRole('family')}
-                  className={`text-xs px-2.5 py-1 rounded-md ${activeRole !== 'elderly' ? 'bg-teal-800 text-white' : 'bg-stone-100 text-stone-700'}`}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-lg transition ${activeRole !== 'elderly' ? 'bg-teal-800 text-white' : 'bg-stone-100 text-stone-700'}`}
                 >
-                  Caregiver
+                  Caregiver (Sarah)
                 </button>
               </div>
             </div>
