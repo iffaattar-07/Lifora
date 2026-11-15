@@ -10,7 +10,8 @@ import {
   CareCircleMember, 
   CareNotification, 
   UserRole,
-  AdherenceStats
+  AdherenceStats,
+  CareActivityItem
 } from '@/types';
 import { 
   mockUserProfile, 
@@ -18,7 +19,8 @@ import {
   mockTodaySchedule, 
   mockAppointments, 
   mockCareCircle, 
-  mockNotifications 
+  mockNotifications,
+  mockRecentActivities 
 } from '@/lib/mockData';
 
 interface CareContextType {
@@ -32,6 +34,7 @@ interface CareContextType {
   appointments: Appointment[];
   careCircle: CareCircleMember[];
   notifications: CareNotification[];
+  recentActivities: CareActivityItem[];
   adherenceStats: AdherenceStats;
   markDoseAsTaken: (id: string) => void;
   markDoseAsMissed: (id: string, reason?: string) => void;
@@ -102,6 +105,16 @@ export function CareProvider({ children }: { children: React.ReactNode }) {
     return mockNotifications;
   });
 
+  const [recentActivities, setRecentActivities] = useState<CareActivityItem[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('lifora_recent_activities');
+      if (saved) {
+        try { return JSON.parse(saved); } catch (e) { console.error(e); }
+      }
+    }
+    return mockRecentActivities;
+  });
+
   // Save changes to localStorage for local testing
   useEffect(() => {
     localStorage.setItem('lifora_medications', JSON.stringify(medications));
@@ -123,6 +136,10 @@ export function CareProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('lifora_notifications', JSON.stringify(notifications));
   }, [notifications]);
 
+  useEffect(() => {
+    localStorage.setItem('lifora_recent_activities', JSON.stringify(recentActivities));
+  }, [recentActivities]);
+
   // Calculate adherence
   const totalScheduledToday = todaySchedule.length;
   const totalTakenToday = todaySchedule.filter((d) => d.status === 'taken').length;
@@ -138,12 +155,17 @@ export function CareProvider({ children }: { children: React.ReactNode }) {
   };
 
   const markDoseAsTaken = (id: string) => {
+    const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const actorLabel = activeRole === 'elderly' ? `${profile.preferredName} (Self)` : 'Sarah Vance (Daughter)';
+
     const updated = todaySchedule.map((item) => {
       if (item.id === id) {
         return {
           ...item,
           status: 'taken' as const,
-          takenAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          takenAt: timeNow,
+          recordedBy: actorLabel,
+          updatedAt: timeNow,
         };
       }
       return item;
@@ -166,7 +188,7 @@ export function CareProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // Add positive notification
+    // Add positive notification & activity record
     const dose = todaySchedule.find((d) => d.id === id);
     if (dose) {
       const newNotif: CareNotification = {
@@ -174,15 +196,30 @@ export function CareProvider({ children }: { children: React.ReactNode }) {
         type: 'medication_reminder',
         severity: 'success',
         title: 'Medication Confirmed',
-        message: `${dose.medicationName} (${dose.dosage}) recorded as taken. Great job!`,
+        message: `${dose.medicationName} (${dose.dosage}) recorded as taken by ${actorLabel}. Great job!`,
         timestamp: new Date().toISOString(),
         isRead: false,
       };
       setNotifications((prev) => [newNotif, ...prev]);
+
+      const newActivity: CareActivityItem = {
+        id: `act-${Date.now()}`,
+        timestamp: `${timeNow} Today`,
+        actorName: activeRole === 'elderly' ? profile.name : 'Sarah Vance',
+        actorRole: activeRole === 'elderly' ? 'elderly' : 'family',
+        action: 'dose_taken',
+        title: `${dose.medicationName} Confirmed Taken`,
+        description: `${dose.dosage} marked as taken at ${timeNow} by ${actorLabel}.`,
+        badge: 'On Time',
+      };
+      setRecentActivities((prev) => [newActivity, ...prev]);
     }
   };
 
   const markDoseAsMissed = (id: string, reason?: string) => {
+    const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const actorLabel = activeRole === 'elderly' ? `${profile.preferredName} (Self)` : 'Sarah Vance (Daughter)';
+
     setTodaySchedule((prev) =>
       prev.map((item) => {
         if (item.id === id) {
@@ -190,6 +227,8 @@ export function CareProvider({ children }: { children: React.ReactNode }) {
             ...item,
             status: 'missed' as const,
             missedReason: reason || 'Not taken at scheduled time',
+            recordedBy: actorLabel,
+            updatedAt: timeNow,
           };
         }
         return item;
@@ -208,6 +247,18 @@ export function CareProvider({ children }: { children: React.ReactNode }) {
         isRead: false,
       };
       setNotifications((prev) => [newNotif, ...prev]);
+
+      const newActivity: CareActivityItem = {
+        id: `act-${Date.now()}`,
+        timestamp: `${timeNow} Today`,
+        actorName: activeRole === 'elderly' ? profile.name : 'Sarah Vance',
+        actorRole: activeRole === 'elderly' ? 'elderly' : 'family',
+        action: 'dose_missed',
+        title: `${dose.medicationName} Marked Missed`,
+        description: `Dose missed: ${reason || 'Scheduled time passed'}. Logged by ${actorLabel}.`,
+        badge: 'Missed',
+      };
+      setRecentActivities((prev) => [newActivity, ...prev]);
     }
   };
 
@@ -215,6 +266,18 @@ export function CareProvider({ children }: { children: React.ReactNode }) {
     const medId = `med-${Date.now()}`;
     const fullMed: Medication = { ...newMed, id: medId };
     setMedications((prev) => [...prev, fullMed]);
+
+    const newActivity: CareActivityItem = {
+      id: `act-${Date.now()}`,
+      timestamp: 'Just now',
+      actorName: activeRole === 'elderly' ? profile.name : 'Sarah Vance',
+      actorRole: activeRole === 'elderly' ? 'elderly' : 'family',
+      action: 'medication_added',
+      title: 'New Prescription Added',
+      description: `${fullMed.name} (${fullMed.dosage}) added to active regimen.`,
+      badge: 'New Regimen',
+    };
+    setRecentActivities((prev) => [newActivity, ...prev]);
 
     // Automatically generate today's doses for this medication if active
     if (fullMed.active && fullMed.scheduleTimes.length > 0) {
@@ -251,6 +314,18 @@ export function CareProvider({ children }: { children: React.ReactNode }) {
   const addAppointment = (newApt: Omit<Appointment, 'id'>) => {
     const fullApt: Appointment = { ...newApt, id: `apt-${Date.now()}` };
     setAppointments((prev) => [...prev, fullApt]);
+
+    const newActivity: CareActivityItem = {
+      id: `act-${Date.now()}`,
+      timestamp: 'Just now',
+      actorName: activeRole === 'elderly' ? profile.name : 'Sarah Vance',
+      actorRole: activeRole === 'elderly' ? 'elderly' : 'family',
+      action: 'appointment_scheduled',
+      title: 'Appointment Scheduled',
+      description: `Visit with ${fullApt.doctorName} (${fullApt.specialty}) scheduled for ${fullApt.date}.`,
+      badge: 'Clinic',
+    };
+    setRecentActivities((prev) => [newActivity, ...prev]);
   };
 
   const addCareCircleMember = (newMember: Omit<CareCircleMember, 'id'>) => {
@@ -298,6 +373,7 @@ export function CareProvider({ children }: { children: React.ReactNode }) {
         appointments,
         careCircle,
         notifications,
+        recentActivities,
         adherenceStats,
         markDoseAsTaken,
         markDoseAsMissed,
@@ -307,6 +383,10 @@ export function CareProvider({ children }: { children: React.ReactNode }) {
         addAppointment,
         addCareCircleMember,
         markNotificationAsRead,
+        clearAllNotifications,
+        triggerEmergencyAlert,
+      }}
+    >
         clearAllNotifications,
         triggerEmergencyAlert,
       }}
