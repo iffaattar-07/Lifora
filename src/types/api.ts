@@ -95,3 +95,33 @@ export const UpdateProfileRequestSchema = z.object({
 export type UpdateProfileRequest = z.infer<typeof UpdateProfileRequestSchema>;
 
 // ====================================================================
+// 3. Medication Schemas
+// ====================================================================
+
+export const CreateMedicationSchema = z.object({
+  name: z.string().min(1, 'Medication name is required'),
+  genericName: z.string().optional(),
+  dosage: z.string().min(1, 'Dosage is required (e.g. 10 mg)'),
+  form: z.enum(['tablet', 'capsule', 'liquid', 'inhaler', 'injection', 'drops', 'topical']),
+  color: z.string().default('#2E847D'),
+  purpose: z.string().min(1, 'Purpose is required (e.g. Blood Pressure)'),
+  frequency: z.enum(['daily', 'twice_daily', 'three_times_daily', 'four_times_daily', 'weekly', 'as_needed']),
+  scheduleTimes: z.array(z.string()).min(1, 'At least one schedule time is required'),
+  withFood: z.enum(['before', 'with', 'after', 'anytime']),
+  instructions: z.string().default(''),
+  prescribingDoctor: z.string().default(''),
+  refillCount: z.number().int().min(0).default(30),
+  totalQuantity: z.number().int().min(1).default(30),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+});
+
+export type CreateMedicationInput = z.infer<typeof CreateMedicationSchema>;
+
+export const UpdateMedicationSchema = CreateMedicationSchema.partial().extend({
+  active: z.boolean().optional(),
+});
+
+export type UpdateMedicationInput = z.infer<typeof UpdateMedicationSchema>;
+
+// ====================================================================
