@@ -11,7 +11,8 @@ import {
   CareNotification, 
   UserRole,
   AdherenceStats,
-  CareActivityItem
+  CareActivityItem,
+  DemoUserSession
 } from '@/types';
 import { 
   mockUserProfile, 
@@ -23,8 +24,35 @@ import {
   mockRecentActivities 
 } from '@/lib/mockData';
 
+export const DEMO_ACCOUNTS = {
+  senior: {
+    id: 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d',
+    name: 'Margaret Vance',
+    email: 'margaret@lifora.demo',
+    password: 'Margaret@123',
+    role: 'elderly' as UserRole,
+    isDemo: true,
+    avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=256',
+  },
+  caregiver: {
+    id: 'b2c3d4e5-f6a1-4b2c-9d3e-4f5a6b7c8d9e',
+    name: 'Sarah Vance',
+    email: 'sarah@lifora.demo',
+    password: 'Sarah@123',
+    role: 'family' as UserRole,
+    isDemo: true,
+    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=256',
+  },
+};
+
 interface CareContextType {
   profile: UserProfile;
+  currentUser: DemoUserSession | null;
+  isLoggedIn: boolean;
+  loginDemo: (account: 'senior' | 'caregiver', customCreds?: { email: string; password?: string }) => void;
+  logout: () => void;
+  isLoginModalOpen: boolean;
+  setIsLoginModalOpen: (open: boolean) => void;
   activeRole: UserRole;
   setActiveRole: (role: UserRole) => void;
   fontSize: 'normal' | 'large' | 'xlarge';
@@ -52,7 +80,36 @@ const CareContext = createContext<CareContextType | undefined>(undefined);
 
 export function CareProvider({ children }: { children: React.ReactNode }) {
   const [profile] = useState<UserProfile>(mockUserProfile);
-  const [activeRole, setActiveRole] = useState<UserRole>('elderly');
+  const [currentUser, setCurrentUser] = useState<DemoUserSession | null>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('lifora_demo_user');
+      if (saved) {
+        try { return JSON.parse(saved); } catch (e) { console.error(e); }
+      }
+    }
+    return null;
+  });
+
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return !!localStorage.getItem('lifora_demo_user');
+    }
+    return false;
+  });
+
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [activeRole, setActiveRole] = useState<UserRole>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('lifora_demo_user');
+      if (saved) {
+        try {
+          const u = JSON.parse(saved);
+          return u.role || 'elderly';
+        } catch {}
+      }
+    }
+    return 'elderly';
+  });
   const [fontSize, setFontSize] = useState<'normal' | 'large' | 'xlarge'>('normal');
 
   const [medications, setMedications] = useState<Medication[]>(() => {
@@ -360,10 +417,45 @@ export function CareProvider({ children }: { children: React.ReactNode }) {
     setNotifications((prev) => [alertNotif, ...prev]);
   };
 
+  const loginDemo = (account: 'senior' | 'caregiver', customCreds?: { email: string; password?: string }) => {
+    const selected = DEMO_ACCOUNTS[account];
+    const userSession: DemoUserSession = {
+      id: selected.id,
+      name: selected.name,
+      email: customCreds?.email || selected.email,
+      role: selected.role,
+      isDemo: true,
+      avatar: selected.avatar,
+    };
+
+    setCurrentUser(userSession);
+    setActiveRole(selected.role);
+    setIsLoggedIn(true);
+    setIsLoginModalOpen(false);
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('lifora_demo_user', JSON.stringify(userSession));
+    }
+  };
+
+  const logout = () => {
+    setCurrentUser(null);
+    setIsLoggedIn(false);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('lifora_demo_user');
+    }
+  };
+
   return (
     <CareContext.Provider
       value={{
         profile,
+        currentUser,
+        isLoggedIn,
+        loginDemo,
+        logout,
+        isLoginModalOpen,
+        setIsLoginModalOpen,
         activeRole,
         setActiveRole,
         fontSize,

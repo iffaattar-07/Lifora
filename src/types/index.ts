@@ -1,5 +1,14 @@
 export type UserRole = 'elderly' | 'family' | 'caretaker';
 
+export interface DemoUserSession {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  isDemo: boolean;
+  avatar?: string;
+}
+
 export interface UserProfile {
   id: string;
   name: string;
