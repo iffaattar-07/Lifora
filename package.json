@@ -6,7 +6,12 @@
     "dev": "next dev -p 3005",
     "build": "next build",
     "start": "next start -p 3005",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@prisma/client": "^6.4.1",
@@ -22,16 +27,23 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.10",
     "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^22.13.4",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
+    "@vitest/coverage-v8": "^5.1.0",
     "autoprefixer": "^10.4.20",
+    "jsdom": "^31.0.1",
     "postcss": "^8.5.2",
     "prisma": "^6.4.1",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.3",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^5.1.0"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
