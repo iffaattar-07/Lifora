@@ -4,7 +4,8 @@ import {
   DoseScheduleItem, 
   Appointment, 
   CareCircleMember, 
-  CareNotification 
+  CareNotification,
+  CareActivityItem
 } from '@/types';
 
 export const mockUserProfile: UserProfile = {
@@ -137,6 +138,8 @@ export const mockTodaySchedule: DoseScheduleItem[] = [
     scheduledDate: '2026-11-15',
     status: 'taken',
     takenAt: '08:14 AM',
+    recordedBy: 'Margaret Vance (Self)',
+    updatedAt: '08:14 AM',
     withFood: 'with',
     instructions: 'Take with breakfast & full glass of water',
     purpose: 'Blood Pressure',
@@ -153,6 +156,8 @@ export const mockTodaySchedule: DoseScheduleItem[] = [
     scheduledDate: '2026-11-15',
     status: 'taken',
     takenAt: '08:15 AM',
+    recordedBy: 'Margaret Vance (Self)',
+    updatedAt: '08:15 AM',
     withFood: 'with',
     instructions: 'Take with morning meal',
     purpose: 'Blood Glucose',
@@ -168,6 +173,8 @@ export const mockTodaySchedule: DoseScheduleItem[] = [
     scheduledDate: '2026-11-15',
     status: 'taken',
     takenAt: '08:15 AM',
+    recordedBy: 'Margaret Vance (Self)',
+    updatedAt: '08:15 AM',
     withFood: 'with',
     instructions: 'Take with food for best absorption',
     purpose: 'Bone Strength',
@@ -344,5 +351,58 @@ export const mockNotifications: CareNotification[] = [
     isRead: true,
     actionUrl: '/appointments',
     actionLabel: 'View Details',
+  },
+];
+
+export const mockRecentActivities: CareActivityItem[] = [
+  {
+    id: 'act-1',
+    timestamp: '08:15 AM Today',
+    actorName: 'Margaret Vance',
+    actorRole: 'elderly',
+    action: 'dose_taken',
+    title: 'Morning Regimen Completed',
+    description: 'Took Lisinopril 10mg, Metformin 500mg, and Vitamin D3 with breakfast.',
+    badge: 'On Time',
+  },
+  {
+    id: 'act-2',
+    timestamp: 'Yesterday at 5:20 PM',
+    actorName: 'Sarah Vance',
+    actorRole: 'family',
+    action: 'appointment_escort',
+    title: 'Escort Confirmed',
+    description: 'Confirmed transport and escort accompaniment for Cardiology appointment with Dr. Hayes.',
+    badge: 'Escort Set',
+  },
+  {
+    id: 'act-3',
+    timestamp: 'Yesterday at 2:00 PM',
+    actorName: 'Elena Rostova, RN',
+    actorRole: 'caretaker',
+    action: 'vitals_logged',
+    title: 'Home Care Check-in',
+    description: 'Blood pressure verified at 122/78 mmHg. Pill organizer verified for the upcoming week.',
+    badge: 'Vitals Normal',
+  },
+  {
+    id: 'act-4',
+    timestamp: 'Nov 13, 11:30 AM',
+    actorName: 'David Vance',
+    actorRole: 'family',
+    action: 'refill_requested',
+    title: 'Prescription Refill Requested',
+    description: 'Contacted St. Jude Pharmacy to authorize 30-day refill for Lisinopril 10mg.',
+    badge: 'Pharmacy',
+  },
+  {
+    id: 'act-5',
+    timestamp: 'Nov 12, 09:45 AM',
+    actorName: 'Dr. Robert Hayes',
+    actorRole: 'caretaker',
+    action: 'appointment_scheduled',
+    title: 'Cardiology Review Scheduled',
+    description: 'Routine 6-month checkup confirmed for Nov 19 at 10:30 AM.',
+    badge: 'Clinic',
   },
 ];
