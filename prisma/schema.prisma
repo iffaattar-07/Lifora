@@ -174,3 +174,25 @@ model CareNotification {
   @@index([userId, isRead, createdAt])
   @@map("care_notifications")
 }
+
+// 7. AUDIT EVENTS (HIPAA / Care Governance Compliance Logging)
+model AuditEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  actorName  String   @map("actor_name")
+  actorRole  String   @map("actor_role") @db.VarChar(20)
+  action     String   @db.VarChar(50) // 'dose_taken', 'dose_missed', 'medication_added', 'alert_triggered'
+  entityType String   @map("entity_type") @db.VarChar(40)
+  entityId   String?  @map("entity_id")
+  metadata   Json     @default("{}")
+  ipAddress  String?  @map("ip_address") @db.VarChar(50)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  profile Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([action])
+  @@map("audit_events")
+}
