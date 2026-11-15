@@ -35,10 +35,16 @@ export class ProfileService {
       }
 
       const { mockUserProfile } = await import('@/lib/mockData');
-      return mockUserProfile;
+      return {
+        ...mockUserProfile,
+        fullName: (mockUserProfile as any).fullName || mockUserProfile.name,
+      };
     } catch {
       const { mockUserProfile } = await import('@/lib/mockData');
-      return mockUserProfile;
+      return {
+        ...mockUserProfile,
+        fullName: (mockUserProfile as any).fullName || mockUserProfile.name,
+      };
     }
   }
 
