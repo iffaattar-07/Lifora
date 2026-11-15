@@ -96,10 +96,10 @@ This guide provides step-by-step instructions to deploy **LIFORA** to 100% free-
 LIFORA uses native **Vercel Cron Jobs** declared in `vercel.json`:
 
 - **Daily Dose Slot Generator (`/api/cron/daily-doses`)**:
-  - Runs daily at `00:00 UTC` (`0 0 * * *`).
+  - Runs daily at `18:30 UTC` (`30 18 * * *`, 00:00 IST) so the day's dose logs are generated at the start of the day for Indian users.
   - Automatically iterates through all active prescriptions and generates today's dose logs (`pending` status).
 - **Missed-Dose Watchdog (`/api/cron/missed-dose-check`)**:
-  - Runs every 10 minutes (`*/10 * * * *`).
+  - Runs daily at `15:30 UTC` (`30 15 * * *`, 21:00 IST) to evaluate overdue doses once per day in the evening for Indian users (Vercel Hobby plan allows at most one cron execution per day per job).
   - Scans for overdue doses past their grace period, marks them missed, and escalates alerts to designated care circle members.
 
 > **Security Note**: Vercel Cron requests automatically pass the `CRON_SECRET` in the `Authorization: Bearer <CRON_SECRET>` header, ensuring cron endpoints cannot be invoked by external parties.
