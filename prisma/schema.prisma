@@ -101,3 +101,31 @@ model DoseLog {
   @@index([status])
   @@map("dose_logs")
 }
+
+// 4. CARE CIRCLE MEMBERS (Family & Caretakers Link)
+model CareCircleMember {
+  id                   String   @id @default(uuid()) @db.Uuid
+  elderlyUserId        String   @map("elderly_user_id") @db.Uuid
+  memberUserId         String?  @map("member_user_id") @db.Uuid
+  name                 String
+  relation             String   @db.VarChar(40) // 'Daughter', 'Son', 'Spouse', 'Primary Caregiver', 'Home Nurse', etc.
+  role                 String   @db.VarChar(20) // 'family' | 'caretaker'
+  phone                String   @db.VarChar(30)
+  email                String
+  isEmergencyContact   Boolean  @default(false) @map("is_emergency_contact")
+  canManageMeds        Boolean  @default(true) @map("can_manage_meds")
+  receiveInstantAlerts Boolean  @default(true) @map("receive_instant_alerts")
+  avatarUrl            String?  @map("avatar_url")
+  inviteStatus         String   @default("accepted") @map("invite_status") @db.VarChar(20) // 'invited' | 'accepted' | 'declined'
+  lastActiveAt         DateTime @default(now()) @map("last_active_at") @db.Timestamptz()
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  elderly    Profile  @relation("ElderlyRecipient", fields: [elderlyUserId], references: [id], onDelete: Cascade)
+  memberUser Profile? @relation("MemberUser", fields: [memberUserId], references: [id], onDelete: SetNull)
+
+  @@unique([elderlyUserId, email])
+  @@index([elderlyUserId])
+  @@index([memberUserId])
+  @@map("care_circle_members")
+}
