@@ -181,3 +181,28 @@ export const EmergencyBroadcastSchema = z.object({
 export type EmergencyBroadcastInput = z.infer<typeof EmergencyBroadcastSchema>;
 
 // ====================================================================
+// 6. Appointment Schemas
+// ====================================================================
+
+export const CreateAppointmentSchema = z.object({
+  doctorName: z.string().min(2, 'Physician name is required'),
+  specialty: z.string().min(2, 'Specialty is required'),
+  facility: z.string().min(2, 'Facility / clinic is required'),
+  address: z.string().default(''),
+  contactNumber: z.string().default(''),
+  appointmentDate: z.string().min(8, 'Appointment date is required (YYYY-MM-DD)'),
+  appointmentTime: z.string().min(2, 'Appointment time is required (e.g. 10:30 AM)'),
+  notes: z.string().optional(),
+  requiresEscort: z.boolean().default(true),
+  assignedEscort: z.string().optional(),
+});
+
+export type CreateAppointmentInput = z.infer<typeof CreateAppointmentSchema>;
+
+export const UpdateAppointmentSchema = CreateAppointmentSchema.partial().extend({
+  status: z.enum(['upcoming', 'completed', 'rescheduled', 'cancelled']).optional(),
+});
+
+export type UpdateAppointmentInput = z.infer<typeof UpdateAppointmentSchema>;
+
+// ====================================================================
