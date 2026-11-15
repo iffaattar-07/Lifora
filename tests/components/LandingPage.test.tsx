@@ -1,13 +1,16 @@
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { LandingPage } from '@/components/landing/LandingPage';
+
+const mockLoginDemo = vi.fn();
+const mockSetIsLoginModalOpen = vi.fn();
 
 vi.mock('@/context/CareContext', () => ({
   useCare: () => ({
-    loginDemo: vi.fn(),
+    loginDemo: mockLoginDemo,
     isLoginModalOpen: false,
-    setIsLoginModalOpen: vi.fn(),
+    setIsLoginModalOpen: mockSetIsLoginModalOpen,
   }),
   DEMO_ACCOUNTS: {
     senior: {
@@ -24,6 +27,10 @@ vi.mock('@/context/CareContext', () => ({
 }));
 
 describe('LandingPage Component', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('renders hero title and core platform tagline', () => {
     render(<LandingPage />);
 
@@ -45,5 +52,39 @@ describe('LandingPage Component', () => {
     expect(screen.getByText(/92% Adherence Rate/i)).toBeInTheDocument();
     expect(screen.getByText(/Instant Emergency SOS/i)).toBeInTheDocument();
     expect(screen.getByText(/Context-Aware AI Companion/i)).toBeInTheDocument();
+  });
+
+  it('renders interactive safeguard test trigger and displays safety notice when clicked', () => {
+    render(<LandingPage />);
+
+    const testPrompt = screen.getByText(/Test the Clinical Safeguard Filter live:/i);
+    expect(testPrompt).toBeInTheDocument();
+
+    const doubleDoseBtn = screen.getByRole('button', { name: /Can I double my dose\?/i });
+    expect(doubleDoseBtn).toBeInTheDocument();
+
+    fireEvent.click(doubleDoseBtn);
+
+    expect(screen.getByText(/Safety Safeguard Triggered/i)).toBeInTheDocument();
+  });
+
+  it('allows marking hero dose as taken with celebratory feedback', () => {
+    render(<LandingPage />);
+
+    const tookBtn = screen.getByRole('button', { name: /I Took This Now/i });
+    expect(tookBtn).toBeInTheDocument();
+
+    fireEvent.click(tookBtn);
+
+    expect(screen.getByText(/Dose Recorded as Taken!/i)).toBeInTheDocument();
+  });
+
+  it('triggers login modal when Explore Demo Accounts is clicked', () => {
+    render(<LandingPage />);
+
+    const exploreBtn = screen.getByText(/Explore Demo Accounts/i);
+    fireEvent.click(exploreBtn);
+
+    expect(mockSetIsLoginModalOpen).toHaveBeenCalledWith(true);
   });
 });
