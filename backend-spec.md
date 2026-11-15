@@ -3,849 +3,653 @@
 ## 1. Executive Summary & System Overview
 
 ### Core Purpose
-**LIFORA** is an intelligent, compassionate healthcare and wellness ecosystem designed to bridge elderly individuals, their family members, and professional caretakers. The backend provides a secure, highly reliable, and reactive foundation that:
-1. **Synchronizes Medication Regimens & Dosing Schedules**: Manages recurring prescription definitions, generates daily dose schedules, records real-time taken/missed confirmations, and aggregates rolling adherence statistics.
-2. **Maintains a Collaborative Care Circle**: Supports role-segregated access (`elderly`, `family`, `caretaker`) around a central care recipient, enabling multi-party visibility, permission gating, and emergency contact registries.
-3. **Automates Critical Notifications & Escalations**: Triggers automated, multi-channel alerts (SMS, transactional email via Resend, push notifications) when critical medications are missed or when an elderly user triggers an SOS distress call.
-4. **Coordinates Clinical Visits & Escorts**: Manages medical appointments, preparation directives, clinic contacts, and family escort transport assignments.
-5. **Powers a Context-Aware Intelligent Care Assistant**: Feeds a live snapshot of prescriptions, daily schedules, physician guidelines, and emergency contacts into an LLM context engine backed by strict clinical safety guardrails (preventing dosage alteration recommendations or unauthorized medical diagnoses).
+
+LIFORA is an elderly-care coordination platform for an elderly care recipient, family members, home-care professionals, and physicians. The backend must provide a secure source of truth for:
+
+- Care-recipient profiles, conditions, allergies, emergency contacts, and primary clinician data.
+- Medication regimens, schedule times, dose status, adherence metrics, refill status, and clinician instructions.
+- Doctor appointments, preparation notes, clinic contacts, and assigned escorts.
+- Care-circle membership, permissions, presence, invitations, and notification preferences.
+- In-app notifications, missed-dose escalation, emergency broadcasts, SMS/email delivery, and read state.
+- A context-aware care assistant that answers from server-side care data and refuses diagnosis, dosage changes, or unsafe missed-dose advice.
+- Role/view preferences, accessibility preferences, audit history, and real-time updates.
+
+The current frontend uses `CareContext`, mock data, and browser `localStorage`. The production backend must replace that persistence while preserving the current UI model where practical. The existing `/api/assistant` response shape should remain available as a compatibility endpoint during migration.
 
 ### Proposed Tech Stack
 
-| Tier / Component | Technology | Rationale |
-| :--- | :--- | :--- |
-| **Runtime & Framework** | **Node.js (v20+ LTS) with Next.js 15 API Routes / Express / NestJS** | Native compatibility with the existing TypeScript codebase; zero serialization overhead between frontend and backend contracts. |
-| **Language** | **TypeScript 5.7+ (Strict Mode)** | End-to-end type safety sharing `src/types/index.ts` across client and server boundaries. |
-| **Primary Database** | **PostgreSQL 15+ (via Supabase)** | Relational rigor required for healthcare audit trails, ACID transactions on dose logs, and native support for JSONB (physician/emergency payloads) and UUIDs. |
-| **Database Access / ORM** | **Prisma ORM / Supabase Client (@supabase/ssr)** | Type-safe migrations, auto-generated TypeScript queries, connection pooling, and seamless declarative schema synchronization. |
-| **Authentication & IAM** | **Supabase Auth (GoTrue) + Row-Level Security (RLS)** | Secure JWT handling, refresh token rotation, multi-factor support, and PostgreSQL-level policy enforcement preventing data leakage between care circles. |
-| **Queue & Scheduling** | **Redis + BullMQ (or Supabase pg_cron + Edge Functions)** | Low-latency scheduling for cron-based missed dose detectors (e.g., checking doses at $T + 30\text{min}$), daily dose batch generators, and asynchronous notification workers. |
-| **Email Delivery** | **Resend API** | High-deliverability transactional healthcare alerts for missed doses, invitation flows, and daily care digests. |
-| **SMS / Voice Fallback** | **Twilio Messaging API** | Instant cellular fallback for SOS emergency events and critical medication warnings for family circles without active web sessions. |
-| **AI Orchestration** | **Vercel AI SDK / LangChain + Anthropic Claude 3.5 Sonnet or OpenAI GPT-4o-mini** | Deterministic function-calling, structured JSON outputs, prompt guardrail boundaries, and low-latency streaming responses. |
-| **Deployment & Hosting** | **Vercel (Compute / Serverless) + Supabase Managed PostgreSQL** | Instant CI/CD integration, edge-optimized routing, automatic HTTPS, and isolated database connection pooling via PgBouncer. |
+- **Application/API:** Next.js 15 Route Handlers as a same-origin backend-for-frontend (BFF), organized as a modular monolith. This avoids unnecessary CORS and authentication changes for the current frontend. A separate NestJS/Fastify service can be extracted later if workload requires it.
+- **Database:** PostgreSQL through Supabase, with migrations, foreign keys, constraints, database functions, and Row Level Security (RLS).
+- **Authentication:** Supabase Auth with secure cookie sessions, email/password or magic link, optional OAuth, and optional MFA for caregivers and staff.
+- **Database access:** Supabase SSR client for request-scoped authentication and typed SQL/RPC for RLS-protected access. Drizzle ORM is recommended for migrations and server-side typed queries if the team prefers a local schema layer; do not bypass RLS with the service-role key in request handlers.
+- **Validation:** Zod schemas at every API boundary, including assistant input, form payloads, query strings, webhook payloads, and environment variables.
+- **Real-time:** Supabase Realtime channels scoped to a care recipient. Never expose an unfiltered global table channel.
+- **Jobs:** Supabase scheduled functions/cron for dose generation and reminders, plus a durable queue such as Upstash QStash or BullMQ/Redis for notification delivery and retries.
+- **Messaging:** Resend for email and Twilio Verify/Messaging for SMS, with user consent, opt-out handling, delivery status, and idempotency keys.
+- **Assistant:** Deterministic server-side intent/rules for medication safety and care lookups, optionally augmented by OpenAI or Gemini for natural-language formatting. The model must never be the source of medication dosage or clinical decisions.
+- **Observability:** Sentry for exceptions, structured JSON logs, OpenTelemetry-compatible tracing, and database audit logs.
+- **Hosting:** Vercel for the Next.js BFF, Supabase for Postgres/Auth/Realtime/Storage, and Upstash or a managed worker platform for jobs. Use a HIPAA-appropriate Supabase plan/BAA and compliant vendors before handling real PHI.
 
----
+### Frontend Compatibility and Required Changes
+
+The backend can preserve the existing visual UI, but these structural changes are required for production behavior:
+
+1. `CareProvider` must load dashboard state from authenticated API endpoints rather than seed all state from `mockData.ts` and `localStorage`.
+2. Dose, medication, appointment, care-circle, notification, and emergency actions must call mutation endpoints and then reconcile the returned server state.
+3. The current `/api/assistant` endpoint must ignore client-supplied care context and derive context from the authenticated user and selected care recipient.
+4. The frontend should send an `X-Care-Recipient-Id` header or route parameter when a caregiver has access to multiple recipients.
+5. The font-size selector must apply `document.body.dataset.fontSize` and persist the preference through the user-preferences endpoint.
+6. Assistant suggested actions must become explicit typed actions. They currently submit plain text and do not actually mark doses taken, call contacts, or navigate reliably.
 
 ## 2. Entity-Relationship & Database Schema Design
 
-### Conceptual ER Diagram
+All identifiers use UUID. All timestamps are `timestamptz` in UTC. A care recipient has an IANA timezone, used when generating daily schedules and displaying dates. PHI fields should be encrypted at rest by the managed database and access must be audited.
 
-```mermaid
-erDiagram
-    PROFILES ||--o{ MEDICATIONS : "prescribed_for"
-    PROFILES ||--o{ DOSE_LOGS : "schedules_and_records"
-    PROFILES ||--o{ APPOINTMENTS : "attends"
-    PROFILES ||--o{ CARE_CIRCLE_MEMBERS : "care_recipient"
-    PROFILES ||--o{ CARE_NOTIFICATIONS : "receives"
-    PROFILES ||--o{ ASSISTANT_THREADS : "interacts_with"
-    
-    MEDICATIONS ||--o{ DOSE_LOGS : "generates"
-    CARE_CIRCLE_MEMBERS }o--|| PROFILES : "linked_user_account"
-    ASSISTANT_THREADS ||--o{ ASSISTANT_MESSAGES : "contains"
-```
+### 2.1 `profiles`
 
----
+One row per authenticated human account. The Supabase-managed `auth.users` row is the identity source.
 
-### Detailed Table Specifications
+| Field | Type | Constraints / Notes |
+|---|---|---|
+| `id` | uuid | PK; FK to `auth.users.id` with cascade delete |
+| `display_name` | text | Required |
+| `preferred_name` | text | Optional |
+| `avatar_url` | text | Optional; validate approved storage host |
+| `phone` | text | Optional; normalized E.164 when present |
+| `email` | text | Read from Auth or synchronized; unique through Auth |
+| `created_at`, `updated_at` | timestamptz | Required defaults |
 
-#### 1. `profiles`
-Stores user identity, role classification, and demographic/clinical metadata.
+Indexes: primary key; optional normalized phone index. Do not store passwords.
 
-| Column | Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | `UUID` | **PK**, FK -> `auth.users.id` ON DELETE CASCADE | Matches Supabase Auth user UUID. |
-| `role` | `VARCHAR(20)` | NOT NULL, CHECK (`role` IN ('elderly', 'family', 'caretaker')) | Active operational role in the platform. |
-| `full_name` | `TEXT` | NOT NULL | Complete legal name (e.g., "Margaret Vance"). |
-| `preferred_name` | `TEXT` | NOT NULL | Friendly display name (e.g., "Margaret"). |
-| `age` | `INT` | CHECK (`age` >= 0 AND `age` <= 130) | Age in years. |
-| `dob` | `DATE` | NULLABLE | Date of birth. |
-| `blood_type` | `VARCHAR(10)` | NULLABLE | Blood group (e.g., "O+", "A-", "AB+"). |
-| `avatar_url` | `TEXT` | NULLABLE | HTTPS URL to hosted avatar image. |
-| `phone` | `VARCHAR(30)` | NULLABLE | Contact telephone number with country code. |
-| `address` | `TEXT` | NULLABLE | Primary residential address. |
-| `primary_conditions`| `TEXT[]` | NOT NULL DEFAULT '{}' | Array of clinical conditions (e.g., "Hypertension"). |
-| `known_allergies` | `TEXT[]` | NOT NULL DEFAULT '{}' | Drug and food allergies (e.g., "Penicillin", "Sulfa"). |
-| `emergency_contact` | `JSONB` | NOT NULL DEFAULT '{}'::jsonb | Fallback emergency contact object: `{ name, relationship, phone }`. |
-| `primary_physician` | `JSONB` | NOT NULL DEFAULT '{}'::jsonb | Primary clinic details: `{ name, clinic, phone }`. |
-| `created_at` | `TIMESTAMPTZ`| NOT NULL DEFAULT NOW() | Record creation timestamp. |
-| `updated_at` | `TIMESTAMPTZ`| NOT NULL DEFAULT NOW() | Timestamp of last modification. |
+### 2.2 `user_roles`
 
-*Indexes:*
-- `CREATE INDEX idx_profiles_role ON profiles(role);`
-- `CREATE INDEX idx_profiles_phone ON profiles(phone);`
+Supports one account having more than one role.
 
----
+| Field | Type | Constraints / Notes |
+|---|---|---|
+| `user_id` | uuid | FK `profiles.id`, part of PK |
+| `role` | text | PK component; enum `elderly`, `family`, `caretaker`, `physician`, `admin` |
+| `created_at` | timestamptz | Required |
 
-#### 2. `medications`
-Prescription registry detailing drugs, strengths, intake schedules, and refill logistics.
+PK: (`user_id`, `role`). Index by `role`.
 
-| Column | Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | `UUID` | **PK**, DEFAULT `uuid_generate_v4()` | Unique prescription identifier. |
-| `user_id` | `UUID` | **FK** -> `profiles.id` ON DELETE CASCADE, NOT NULL | Care recipient owning the prescription. |
-| `name` | `TEXT` | NOT NULL | Brand or trade name (e.g., "Lisinopril"). |
-| `generic_name` | `TEXT` | NULLABLE | Scientific / generic name (e.g., "Prinivil / Zestril"). |
-| `dosage` | `TEXT` | NOT NULL | Strength with units (e.g., "10 mg", "500 mg"). |
-| `form` | `VARCHAR(30)` | NOT NULL, CHECK (`form` IN ('tablet', 'capsule', 'liquid', 'inhaler', 'injection', 'drops', 'topical')) | Physical form factor. |
-| `color` | `VARCHAR(20)` | DEFAULT '#2E847D' | Hex color token for accessible visual identification. |
-| `purpose` | `TEXT` | NOT NULL | Therapeutic goal (e.g., "Blood Pressure Management"). |
-| `frequency` | `VARCHAR(30)` | NOT NULL, CHECK (`frequency` IN ('daily', 'twice_daily', 'three_times_daily', 'four_times_daily', 'weekly', 'as_needed')) | Prescribed cadence. |
-| `schedule_times` | `TEXT[]` | NOT NULL DEFAULT '{"08:00 AM"}' | Daily administration times in 12h or 24h format. |
-| `with_food` | `VARCHAR(20)` | NOT NULL, CHECK (`with_food` IN ('before', 'with', 'after', 'anytime')) | Dietary relationship. |
-| `instructions` | `TEXT` | NOT NULL DEFAULT '' | Specific patient guidance. |
-| `prescribing_doctor`| `TEXT` | NOT NULL DEFAULT '' | Prescribing clinician's name. |
-| `refill_count` | `INT` | NOT NULL DEFAULT 0, CHECK (`refill_count` >= 0) | Remaining days of medication on hand. |
-| `total_quantity` | `INT` | NOT NULL DEFAULT 30 | Initial count in bottle/dispenser. |
-| `active` | `BOOLEAN` | NOT NULL DEFAULT TRUE | Soft flag for current active prescriptions. |
-| `start_date` | `DATE` | NOT NULL DEFAULT CURRENT_DATE | Date prescription starts. |
-| `end_date` | `DATE` | NULLABLE | Date prescription terminates (if finite). |
-| `created_at` | `TIMESTAMPTZ`| NOT NULL DEFAULT NOW() | Timestamp of record creation. |
-| `updated_at` | `TIMESTAMPTZ`| NOT NULL DEFAULT NOW() | Timestamp of last modification. |
+### 2.3 `care_recipients`
 
-*Indexes:*
-- `CREATE INDEX idx_medications_user_id ON medications(user_id);`
-- `CREATE INDEX idx_medications_active ON medications(user_id, active);`
+The patient/care subject represented by the current `mockUserProfile`.
 
----
+| Field | Type | Constraints / Notes |
+|---|---|---|
+| `id` | uuid | PK |
+| `primary_user_id` | uuid | FK `profiles.id`; unique for an independently signed-in senior account, nullable for a managed profile |
+| `full_name` | text | Required |
+| `preferred_name` | text | Required |
+| `date_of_birth` | date | Optional; derive age server-side |
+| `blood_type` | text | Optional; controlled value |
+| `avatar_url` | text | Optional |
+| `address_line1`, `address_line2`, `city`, `region`, `postal_code`, `country` | text | Optional; encrypt or minimize where appropriate |
+| `timezone` | text | Required; IANA timezone, default `UTC` |
+| `primary_conditions` | text[] | Default empty array |
+| `known_allergies` | text[] | Default empty array |
+| `status` | text | Required enum `active`, `archived` |
+| `created_at`, `updated_at` | timestamptz | Required defaults |
 
-#### 3. `dose_logs`
-Chronological records of every scheduled dose instance and its administration state.
+Indexes: `primary_user_id`, status, lower(full_name). One-to-many to medications, dose logs, appointments, notifications, and members.
 
-| Column | Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | `UUID` | **PK**, DEFAULT `uuid_generate_v4()` | Unique dose schedule instance. |
-| `medication_id` | `UUID` | **FK** -> `medications.id` ON DELETE CASCADE, NOT NULL | Parent prescription. |
-| `user_id` | `UUID` | **FK** -> `profiles.id` ON DELETE CASCADE, NOT NULL | Care recipient for whom dose is scheduled. |
-| `scheduled_date` | `DATE` | NOT NULL | Calendar date (e.g., `2026-11-15`). |
-| `scheduled_time` | `TEXT` | NOT NULL | Target time string (e.g., `08:00 AM`). |
-| `status` | `VARCHAR(20)` | NOT NULL DEFAULT 'pending', CHECK (`status` IN ('pending', 'taken', 'missed', 'snoozed')) | Dose status. |
-| `taken_at` | `TIMESTAMPTZ`| NULLABLE | Exact wall-clock timestamp when taken. |
-| `taken_by` | `UUID` | **FK** -> `profiles.id` ON DELETE SET NULL, NULLABLE | User who verified administration. |
-| `missed_reason` | `TEXT` | NULLABLE | Justification if marked as missed. |
-| `snooze_until` | `TIMESTAMPTZ`| NULLABLE | Timestamp for deferred reminder. |
-| `created_at` | `TIMESTAMPTZ`| NOT NULL DEFAULT NOW() | Timestamp when dose slot was generated. |
-| `updated_at` | `TIMESTAMPTZ`| NOT NULL DEFAULT NOW() | Timestamp of status change. |
+### 2.4 `care_recipient_memberships`
 
-*Indexes:*
-- `CREATE INDEX idx_dose_logs_user_date ON dose_logs(user_id, scheduled_date);`
-- `CREATE INDEX idx_dose_logs_status ON dose_logs(status);`
-- `CREATE UNIQUE INDEX uq_dose_instance ON dose_logs(medication_id, scheduled_date, scheduled_time);`
+Many-to-many relationship between authenticated users and care recipients. This replaces the current flat `careCircleMember` model.
 
----
+| Field | Type | Constraints / Notes |
+|---|---|---|
+| `id` | uuid | PK |
+| `care_recipient_id` | uuid | FK `care_recipients.id` |
+| `user_id` | uuid | FK `profiles.id`, nullable until invitation is accepted |
+| `name` | text | Required invitation/display snapshot |
+| `email` | citext | Required |
+| `relationship` | text | Enum: `Daughter`, `Son`, `Spouse`, `Primary Caregiver`, `Home Nurse`, `Physician`, `Neighbor` |
+| `role` | text | Enum `family`, `caretaker`, `physician` |
+| `phone` | text | Optional |
+| `is_emergency_contact` | boolean | Default false; at most one primary contact per recipient unless explicitly supported |
+| `can_manage_medications` | boolean | Default false; must not grant clinical prescribing privileges |
+| `receive_instant_alerts` | boolean | Default true |
+| `invite_status` | text | Enum `invited`, `accepted`, `declined`, `revoked` |
+| `invited_by`, `accepted_at`, `last_active_at` | uuid/timestamptz | Nullable; audit invitation lifecycle |
+| `created_at`, `updated_at` | timestamptz | Required defaults |
 
-#### 4. `care_circle_members`
-Association between a care recipient (elderly user) and their monitoring network.
+Unique constraints: (`care_recipient_id`, `user_id`) when user exists; (`care_recipient_id`, lower(email)). Index recipient, user, status, and emergency flag.
 
-| Column | Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | `UUID` | **PK**, DEFAULT `uuid_generate_v4()` | Association record UUID. |
-| `elderly_user_id` | `UUID` | **FK** -> `profiles.id` ON DELETE CASCADE, NOT NULL | The patient being cared for. |
-| `member_user_id` | `UUID` | **FK** -> `profiles.id` ON DELETE SET NULL, NULLABLE | Auth user account of the family/caretaker. |
-| `name` | `TEXT` | NOT NULL | Full name of the member. |
-| `relation` | `VARCHAR(40)` | NOT NULL, CHECK (`relation` IN ('Daughter', 'Son', 'Spouse', 'Primary Caregiver', 'Home Nurse', 'Physician', 'Neighbor')) | Relationship to patient. |
-| `role` | `VARCHAR(20)` | NOT NULL, CHECK (`role` IN ('family', 'caretaker')) | Operational role. |
-| `phone` | `VARCHAR(30)` | NOT NULL | Contact telephone for direct calls & SMS. |
-| `email` | `TEXT` | NOT NULL | Email address for alerts and invites. |
-| `is_emergency_contact`| `BOOLEAN` | NOT NULL DEFAULT FALSE | Whether this member is primary for SOS calls. |
-| `can_manage_meds` | `BOOLEAN` | NOT NULL DEFAULT TRUE | Permission flag allowing write access to prescriptions. |
-| `receive_instant_alerts`| `BOOLEAN` | NOT NULL DEFAULT TRUE | Subscribed to critical push/SMS alerts. |
-| `avatar_url` | `TEXT` | NULLABLE | Profile picture. |
-| `invite_status` | `VARCHAR(20)` | NOT NULL DEFAULT 'accepted', CHECK (`invite_status` IN ('invited', 'accepted', 'declined')) | Onboarding state. |
-| `last_active_at` | `TIMESTAMPTZ`| NOT NULL DEFAULT NOW() | Real-time presence indicator. |
-| `created_at` | `TIMESTAMPTZ`| NOT NULL DEFAULT NOW() | Link establishment date. |
+### 2.5 `clinicians` and `facilities`
 
-*Indexes:*
-- `CREATE INDEX idx_care_circle_elderly ON care_circle_members(elderly_user_id);`
-- `CREATE INDEX idx_care_circle_member_user ON care_circle_members(member_user_id);`
-- `CREATE UNIQUE INDEX uq_circle_membership ON care_circle_members(elderly_user_id, email);`
+Normalize recurring doctor and clinic data instead of storing it only inside JSON.
 
----
+`clinicians`: `id`, `display_name`, `specialty`, `license_region` (optional), `phone`, `email`, `created_at`, `updated_at`.
 
-#### 5. `appointments`
-Clinical visits, checkups, and associated escort logistics.
+`facilities`: `id`, `name`, address fields, `phone`, `timezone`, `created_at`, `updated_at`.
 
-| Column | Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | `UUID` | **PK**, DEFAULT `uuid_generate_v4()` | Unique appointment UUID. |
-| `user_id` | `UUID` | **FK** -> `profiles.id` ON DELETE CASCADE, NOT NULL | Patient attending appointment. |
-| `doctor_name` | `TEXT` | NOT NULL | Physician or specialist name. |
-| `specialty` | `TEXT` | NOT NULL | Clinical field (e.g., "Geriatric Cardiology"). |
-| `facility` | `TEXT` | NOT NULL | Hospital or clinic building name. |
-| `address` | `TEXT` | NOT NULL DEFAULT '' | Physical facility location. |
-| `contact_number` | `VARCHAR(30)` | NOT NULL DEFAULT '' | Clinic reception phone number. |
-| `appointment_date` | `DATE` | NOT NULL | Date of consultation. |
-| `appointment_time` | `TEXT` | NOT NULL | Time string (e.g., "10:30 AM"). |
-| `notes` | `TEXT` | NULLABLE | Prep notes (e.g., fasting, medical records). |
-| `requires_escort` | `BOOLEAN` | NOT NULL DEFAULT TRUE | Whether physical transport assistance is needed. |
-| `assigned_escort` | `TEXT` | NULLABLE | Designated family member or driver. |
-| `status` | `VARCHAR(20)` | NOT NULL DEFAULT 'upcoming', CHECK (`status` IN ('upcoming', 'completed', 'rescheduled', 'cancelled')) | State of appointment. |
-| `created_at` | `TIMESTAMPTZ`| NOT NULL DEFAULT NOW() | Record creation date. |
-| `updated_at` | `TIMESTAMPTZ`| NOT NULL DEFAULT NOW() | Last update date. |
+These tables are optional for an initial migration but recommended because appointments and medication prescriptions refer to clinicians repeatedly.
 
-*Indexes:*
-- `CREATE INDEX idx_appointments_user_date ON appointments(user_id, appointment_date);`
+### 2.6 `medications`
 
----
+Represents the current prescription/regimen visible in the medication-management page.
 
-#### 6. `care_notifications`
-In-app and broadcast event stream for alerts, reminders, and updates.
+| Field | Type | Constraints / Notes |
+|---|---|---|
+| `id` | uuid | PK |
+| `care_recipient_id` | uuid | FK `care_recipients.id` |
+| `name` | text | Required |
+| `generic_name` | text | Optional |
+| `dosage` | text | Required; stored as entered, not interpreted by frontend |
+| `form` | text | Required enum `tablet`, `capsule`, `liquid`, `inhaler`, `injection`, `drops`, `topical` |
+| `color` | text | Optional validated hex color for UI only |
+| `purpose` | text | Required |
+| `frequency` | text | Required enum `daily`, `twice_daily`, `three_times_daily`, `four_times_daily`, `weekly`, `as_needed` |
+| `with_food` | text | Required enum `before`, `with`, `after`, `anytime` |
+| `instructions` | text | Optional; clinician-authored text should be distinguished from user notes |
+| `prescribing_clinician_id` | uuid | FK `clinicians.id`, nullable |
+| `prescribing_doctor_snapshot` | text | Required during migration; preserves display value |
+| `refill_count` | integer | Required, non-negative; define whether this means doses or days |
+| `total_quantity` | integer | Required, non-negative |
+| `active` | boolean | Required default true |
+| `start_date`, `end_date` | date | Required start; end nullable and must be >= start |
+| `created_by`, `updated_by` | uuid | FK `profiles.id` |
+| `created_at`, `updated_at` | timestamptz | Required defaults |
+| `version` | integer | Optimistic concurrency counter |
 
-| Column | Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | `UUID` | **PK**, DEFAULT `uuid_generate_v4()` | Notification event UUID. |
-| `user_id` | `UUID` | **FK** -> `profiles.id` ON DELETE CASCADE, NOT NULL | Subject care recipient. |
-| `type` | `VARCHAR(40)` | NOT NULL, CHECK (`type` IN ('medication_reminder', 'medication_missed', 'appointment', 'circle_update', 'system')) | Domain event category. |
-| `severity` | `VARCHAR(20)` | NOT NULL, CHECK (`severity` IN ('urgent', 'warning', 'info', 'success')) | Visual and alert level. |
-| `title` | `TEXT` | NOT NULL | High-level header. |
-| `message` | `TEXT` | NOT NULL | Descriptive narrative body. |
-| `is_read` | `BOOLEAN` | NOT NULL DEFAULT FALSE | Read/unread state. |
-| `action_url` | `TEXT` | NULLABLE | Deep link route (e.g., `/medications`). |
-| `action_label` | `TEXT` | NULLABLE | Button callout (e.g., "View Dose"). |
-| `created_at` | `TIMESTAMPTZ`| NOT NULL DEFAULT NOW() | Emission timestamp. |
+Indexes: (`care_recipient_id`, `active`), lower(name), start/end dates. Soft-delete/archive rather than hard delete if referenced by dose logs.
 
-*Indexes:*
-- `CREATE INDEX idx_notifications_user_unread ON care_notifications(user_id, is_read, created_at DESC);`
+### 2.7 `medication_schedule_times`
 
----
+Replaces the frontend `scheduleTimes: string[]` array with queryable schedule rows.
+
+| Field | Type | Constraints / Notes |
+|---|---|---|
+| `id` | uuid | PK |
+| `medication_id` | uuid | FK `medications.id` cascade |
+| `local_time` | time | Required |
+| `days_of_week` | smallint[] | Optional; 0-6, required for weekly schedules |
+| `is_active` | boolean | Default true |
+| `created_at`, `updated_at` | timestamptz | Required |
+
+Unique: (`medication_id`, `local_time`, `days_of_week`). Index medication and active state.
+
+### 2.8 `dose_logs`
+
+One immutable schedule occurrence plus its status transitions. This powers the dashboard, adherence, notifications, and assistant context.
+
+| Field | Type | Constraints / Notes |
+|---|---|---|
+| `id` | uuid | PK |
+| `care_recipient_id` | uuid | FK `care_recipients.id` |
+| `medication_id` | uuid | FK `medications.id` |
+| `scheduled_date` | date | Required in recipient timezone |
+| `scheduled_time` | time | Required local time |
+| `status` | text | Enum `pending`, `taken`, `missed`, `snoozed` |
+| `taken_at` | timestamptz | Nullable |
+| `taken_by` | uuid | FK `profiles.id`, nullable |
+| `missed_reason` | text | Nullable |
+| `instructions_snapshot` | text | Preserve the instruction at schedule-generation time |
+| `dosage_snapshot`, `medication_name_snapshot`, `form_snapshot`, `purpose_snapshot`, `with_food_snapshot` | text | Required display snapshots |
+| `created_at`, `updated_at` | timestamptz | Required |
+
+Unique: (`medication_id`, `scheduled_date`, `scheduled_time`). Index (`care_recipient_id`, `scheduled_date`, `status`) and pending reminder lookup. Status updates must be transactional and idempotent.
+
+### 2.9 `appointments`
+
+| Field | Type | Constraints / Notes |
+|---|---|---|
+| `id` | uuid | PK |
+| `care_recipient_id` | uuid | FK `care_recipients.id` |
+| `clinician_id` | uuid | FK nullable |
+| `doctor_name_snapshot` | text | Required for compatibility |
+| `specialty` | text | Required |
+| `facility_id` | uuid | FK nullable |
+| `facility_snapshot`, `address_snapshot` | text | Required/optional snapshots |
+| `appointment_date` | date | Required |
+| `appointment_time` | time | Required |
+| `timezone` | text | Required |
+| `notes` | text | Optional |
+| `contact_number` | text | Optional |
+| `requires_escort` | boolean | Default false |
+| `assigned_escort_membership_id` | uuid | FK nullable |
+| `status` | text | Enum `upcoming`, `completed`, `rescheduled`, `cancelled` |
+| `created_by`, `created_at`, `updated_at` | uuid/timestamptz | Required |
+
+Index recipient/status/date. The “next appointment” query must filter `upcoming` and sort by date/time, not use array position.
+
+### 2.10 `notifications`
+
+| Field | Type | Constraints / Notes |
+|---|---|---|
+| `id` | uuid | PK |
+| `care_recipient_id` | uuid | FK |
+| `recipient_user_id` | uuid | FK `profiles.id`, nullable for broadcast rows |
+| `type` | text | Enum `medication_reminder`, `medication_missed`, `appointment`, `circle_update`, `system`, `emergency` |
+| `severity` | text | Enum `urgent`, `warning`, `info`, `success` |
+| `title`, `message` | text | Required |
+| `action_url`, `action_label` | text | Optional, validate internal routes |
+| `is_read` | boolean | Default false |
+| `read_at` | timestamptz | Nullable |
+| `created_at`, `expires_at` | timestamptz | Required/optional |
+
+Index recipient/user/read/created date. Use an outbox rather than relying on UI state for delivery.
+
+### 2.11 `notification_deliveries`
+
+Tracks email/SMS/in-app delivery and retries: `id`, `notification_id`, `recipient_user_id`, `channel`, `destination`, `provider_message_id`, `status` (`queued`, `sent`, `delivered`, `failed`, `opted_out`), `attempt_count`, `last_error`, `sent_at`, `delivered_at`, `created_at`, `updated_at`. Unique notification/recipient/channel/provider idempotency key.
+
+### 2.12 `emergency_alerts`
+
+Tracks an SOS event independently from ordinary notifications: `id`, `care_recipient_id`, `triggered_by`, `reason`, `status` (`created`, `broadcasting`, `sent`, `acknowledged`, `resolved`, `failed`), `created_at`, `resolved_at`, `resolved_by`. Child delivery rows record each contacted member and acknowledgement.
+
+### 2.13 `user_preferences`
+
+Stores `user_id`, `font_size` (`normal`, `large`, `xlarge`), `active_role`, locale, timezone, notification preferences, SMS consent, email consent, reduced-motion preference, and timestamps. PK: `user_id`.
+
+### 2.14 Assistant and audit tables
+
+- `assistant_conversations`: `id`, `care_recipient_id`, `user_id`, `created_at`, `closed_at`.
+- `assistant_messages`: `id`, conversation FK, sender, user message or safe assistant response, intent, model/provider metadata, refusal flag, created_at. Encrypt or redact message content according to retention policy.
+- `audit_logs`: `id`, actor user, care recipient, action, entity type/id, before/after JSONB where permitted, request ID, IP hash, user agent hash, created_at. Append-only; restrict access to compliance administrators.
+
+### Relationships
+
+- One `care_recipient` has many medications, schedule times through medications, dose logs, appointments, notifications, memberships, and emergency alerts.
+- Profiles and care recipients are many-to-many through `care_recipient_memberships`.
+- A medication has many schedule-time rows and dose logs.
+- An appointment may reference one clinician, one facility, and one escort membership.
+- A notification has many channel delivery attempts.
+- Assistant conversations/messages and audit records always reference the authenticated actor and, where relevant, a care recipient.
 
 ## 3. API Endpoints & Contract Specification
 
-All JSON responses follow a standardized API envelope:
-```typescript
-interface ApiResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
-  meta?: {
-    timestamp: string;
-    requestId: string;
-  };
+### 3.1 Common contract
+
+Authenticated API responses use:
+
+```json
+{
+  "data": {},
+  "meta": { "requestId": "uuid", "timestamp": "ISO-8601" }
 }
 ```
 
----
+Errors use:
 
-### Module 1: Authentication & User Profile
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Readable safe message",
+    "fields": { "fieldName": ["Reason"] }
+  },
+  "meta": { "requestId": "uuid" }
+}
+```
 
-#### `POST /api/v1/auth/signup`
-- **Auth**: Public
-- **Request Body**:
-  ```json
-  {
-    "email": "user@example.com",
-    "password": "StrongPassword123!",
-    "fullName": "Margaret Vance",
-    "preferredName": "Margaret",
-    "role": "elderly",
-    "phone": "(503) 555-0192"
-  }
-  ```
-- **Response (201 Created)**:
-  ```json
-  {
-    "success": true,
-    "data": {
-      "user": {
-        "id": "c1f75b92-4f32-4d32-b7e5-1c7b8d8e3a2b",
-        "email": "user@example.com",
-        "role": "elderly",
-        "profile": {
-          "fullName": "Margaret Vance",
-          "preferredName": "Margaret"
-        }
-      },
-      "session": {
-        "accessToken": "eyJhbGciOi...",
-        "refreshToken": "v1.MrQ3..."
-      }
-    }
-  }
-  ```
+Never return stack traces, provider secrets, database errors, or hidden PHI. List endpoints support `limit`, `cursor`, `q`, `sort`, and `status` where applicable.
 
-#### `GET /api/v1/profile`
-- **Auth**: Protected (`Bearer JWT`)
-- **Response (200 OK)**:
-  ```json
-  {
-    "success": true,
-    "data": {
-      "id": "c1f75b92-4f32-4d32-b7e5-1c7b8d8e3a2b",
-      "name": "Margaret Vance",
-      "preferredName": "Margaret",
-      "age": 78,
-      "dob": "1948-04-12",
-      "bloodType": "O+",
-      "role": "elderly",
-      "avatar": "https://images.unsplash.com/...",
-      "primaryCondition": ["Hypertension", "Type 2 Diabetes (Managed)", "Mild Osteoarthritis"],
-      "allergies": ["Penicillin", "Sulfa drugs"],
-      "address": "428 Whispering Oaks Lane, Apt 3B, Portland, OR",
-      "emergencyContact": {
-        "name": "Sarah Vance",
-        "relationship": "Daughter",
-        "phone": "(503) 555-0192"
-      },
-      "primaryDoctor": {
-        "name": "Dr. Robert Hayes, MD",
-        "clinic": "St. Jude Geriatric Health Center",
-        "phone": "(503) 555-0144"
-      }
-    }
-  }
-  ```
+### 3.2 Authentication and current user
 
----
+| Method & route | Auth | Request | Response |
+|---|---|---|---|
+| `GET /api/v1/me` | Protected | None | `200 { data: { profile, roles, preferences, careRecipients } }` |
+| `POST /api/v1/auth/invite/accept` | Authenticated/invite token | `{ token }` | `200 { data: membership }` |
+| `POST /api/v1/auth/logout` | Protected | None | `204` |
+| `PATCH /api/v1/me/preferences` | Protected | `{ fontSize, activeRole, locale, timezone, notificationPreferences }` | `200` updated preferences |
 
-### Module 2: Medications Management
+Supabase Auth handles signup, login, password reset, magic links, OAuth, refresh, and MFA. If a server-side wrapper is required, it must use secure cookies and never expose service-role credentials.
 
-#### `GET /api/v1/medications`
-- **Auth**: Protected (Elderly or Care Circle member with `can_manage_meds` or read access)
-- **Query Params**: `?active=true`
-- **Response (200 OK)**:
-  ```json
-  {
-    "success": true,
-    "data": [
-      {
-        "id": "med-1",
-        "name": "Lisinopril",
-        "genericName": "Prinivil / Zestril",
-        "dosage": "10 mg",
-        "form": "tablet",
-        "color": "#3B82F6",
-        "purpose": "Blood Pressure Management",
-        "frequency": "daily",
-        "scheduleTimes": ["08:00 AM"],
-        "withFood": "with",
-        "instructions": "Take 1 tablet every morning with breakfast and water.",
-        "prescribingDoctor": "Dr. Robert Hayes",
-        "refillCount": 6,
-        "totalQuantity": 30,
-        "active": true,
-        "startDate": "2024-01-15"
-      }
-    ]
-  }
-  ```
+### 3.3 Care recipients and dashboard
 
-#### `POST /api/v1/medications`
-- **Auth**: Protected (Elderly or Care Circle member with `can_manage_meds = true`)
-- **Request Body**:
-  ```json
-  {
-    "name": "Metformin HCl",
-    "genericName": "Glucophage",
-    "dosage": "500 mg",
-    "form": "tablet",
-    "color": "#10B981",
-    "purpose": "Blood Glucose Regulation",
-    "frequency": "twice_daily",
-    "scheduleTimes": ["08:00 AM", "07:30 PM"],
-    "withFood": "with",
-    "instructions": "Take with meals to prevent stomach upset.",
-    "prescribingDoctor": "Dr. Anita Lin",
-    "refillCount": 14,
-    "totalQuantity": 60,
-    "startDate": "2026-11-15"
-  }
-  ```
-- **Response (201 Created)**: Returns the newly persisted `Medication` object and automatically triggers dose creation for the current date.
+| Method & route | Auth | Request/query | Response |
+|---|---|---|---|
+| `GET /api/v1/care-recipients` | Protected | Optional `role`, `status`, cursor | `200` accessible recipients |
+| `GET /api/v1/care-recipients/:recipientId` | Membership | None | `200` profile plus clinician/contact summaries |
+| `PATCH /api/v1/care-recipients/:recipientId` | Recipient or authorized caregiver | Profile fields | `200` updated recipient |
+| `GET /api/v1/care-recipients/:recipientId/dashboard` | Membership | `date=YYYY-MM-DD` optional | `200` `{ profile, medications, todaySchedule, adherenceStats, appointments, careCircle, notifications }` |
 
-#### `PATCH /api/v1/medications/:id`
-- **Auth**: Protected
-- **Request Body**: Partial `Medication` object (e.g. `{ "refillCount": 20 }`).
-- **Response (200 OK)**: Returns updated medication.
+Dashboard aggregation should return the frontend-compatible names (`preferredName`, `todaySchedule`, `careCircle`) while the database remains normalized.
 
-#### `DELETE /api/v1/medications/:id`
-- **Auth**: Protected
-- **Response (200 OK)**: `{ "success": true, "message": "Medication deactivated and future pending doses removed." }`
+### 3.4 Medications and doses
 
----
+| Method & route | Auth | Request/query | Response |
+|---|---|---|---|
+| `GET /api/v1/care-recipients/:recipientId/medications` | Membership | `q`, `active`, `limit`, `cursor` | `200 { data: Medication[] }` |
+| `POST /api/v1/care-recipients/:recipientId/medications` | Recipient or membership with `can_manage_medications` | Name, dosage, form, purpose, frequency, `scheduleTimes`, food requirement, instructions, prescriber, refill values, dates | `201` medication plus schedule times |
+| `GET /api/v1/medications/:medicationId` | Membership | None | `200` medication |
+| `PATCH /api/v1/medications/:medicationId` | Authorized medication manager | Partial fields plus optional `version` | `200` updated medication |
+| `DELETE /api/v1/medications/:medicationId` | Authorized medication manager | None | `204`; archive only |
+| `GET /api/v1/care-recipients/:recipientId/doses/today` | Membership | `date`, `timezone` optional | `200 { data: DoseScheduleItem[], meta: adherence }` |
+| `POST /api/v1/doses/:doseId/taken` | Recipient/member | Optional `{ takenAt, note, idempotencyKey }` | `200` updated dose and notification summary |
+| `POST /api/v1/doses/:doseId/missed` | Recipient/member | `{ reason, idempotencyKey }` | `200` updated dose and escalation status |
+| `POST /api/v1/doses/:doseId/snooze` | Recipient/member | `{ until, idempotencyKey }` | `200` updated dose |
+| `GET /api/v1/care-recipients/:recipientId/adherence` | Membership | `from`, `to`, `granularity` | `200` daily/weekly/monthly metrics |
 
-### Module 3: Daily Dosing & Adherence
+Dose mutation endpoints must enforce allowed state transitions, use transactions, use idempotency keys, and calculate adherence from persisted logs rather than trusting client percentages.
 
-#### `GET /api/v1/doses/today`
-- **Auth**: Protected
-- **Query Params**: `?date=2026-11-15` (Defaults to current server date in user's timezone)
-- **Response (200 OK)**:
-  ```json
-  {
-    "success": true,
-    "data": {
-      "schedule": [
-        {
-          "id": "dose-1",
-          "medicationId": "med-1",
-          "medicationName": "Lisinopril",
-          "dosage": "10 mg",
-          "form": "tablet",
-          "color": "#3B82F6",
-          "scheduledTime": "08:00 AM",
-          "scheduledDate": "2026-11-15",
-          "status": "taken",
-          "takenAt": "2026-11-15T08:14:22Z",
-          "withFood": "with",
-          "instructions": "Take with breakfast & water",
-          "purpose": "Blood Pressure"
-        },
-        {
-          "id": "dose-3",
-          "medicationId": "med-3",
-          "medicationName": "Glucosamine Sulfate",
-          "dosage": "750 mg",
-          "form": "capsule",
-          "color": "#F59E0B",
-          "scheduledTime": "01:00 PM",
-          "scheduledDate": "2026-11-15",
-          "status": "pending",
-          "withFood": "after",
-          "instructions": "Take after midday lunch",
-          "purpose": "Joint Support"
-        }
-      ],
-      "adherence": {
-        "todayPercentage": 50,
-        "weeklyPercentage": 92,
-        "monthlyPercentage": 88,
-        "consecutiveStreakDays": 5,
-        "totalTakenToday": 1,
-        "totalScheduledToday": 2
-      }
-    }
-  }
-  ```
+### 3.5 Appointments
 
-#### `POST /api/v1/doses/:id/take`
-- **Auth**: Protected (Elderly or Authorized Caregiver)
-- **Request Body**:
-  ```json
-  {
-    "takenAt": "2026-11-15T13:02:10Z"
-  }
-  ```
-- **Response (200 OK)**: Updates status to `taken`, logs audit actor (`taken_by`), decrements medication inventory count, checks for streak updates, and dispatches a positive notification.
+| Method & route | Auth | Request/query | Response |
+|---|---|---|---|
+| `GET /api/v1/care-recipients/:recipientId/appointments` | Membership | `status`, `from`, `to`, cursor | `200` appointments sorted by date/time |
+| `POST /api/v1/care-recipients/:recipientId/appointments` | Recipient/authorized caregiver | Physician, specialty, facility, address, date, time, timezone, notes, phone, escort | `201` appointment |
+| `GET /api/v1/appointments/:appointmentId` | Membership | None | `200` appointment |
+| `PATCH /api/v1/appointments/:appointmentId` | Recipient/authorized caregiver | Partial appointment fields plus version | `200` appointment |
+| `POST /api/v1/appointments/:appointmentId/cancel` | Recipient/authorized caregiver | `{ reason }` | `200` cancelled appointment |
+| `POST /api/v1/appointments/:appointmentId/complete` | Authorized caregiver | None | `200` completed appointment |
 
-#### `POST /api/v1/doses/:id/miss`
-- **Auth**: Protected
-- **Request Body**:
-  ```json
-  {
-    "reason": "Patient felt mildly nauseous"
-  }
-  ```
-- **Response (200 OK)**: Updates status to `missed`, records clinical reasoning, and dispatches an advisory notification to Care Circle members.
+Date/time inputs must be validated in the care recipient timezone and converted to UTC for jobs.
 
----
+### 3.6 Care circle
 
-### Module 4: Family & Care Circle
+| Method & route | Auth | Request/query | Response |
+|---|---|---|---|
+| `GET /api/v1/care-recipients/:recipientId/members` | Membership | None | `200` members with permitted fields |
+| `POST /api/v1/care-recipients/:recipientId/members/invite` | Recipient/admin | Name, email, relationship, role, phone, permissions, emergency flag | `201` pending membership; queues invite |
+| `POST /api/v1/memberships/:membershipId/accept` | Invitee | Token | `200` accepted membership |
+| `PATCH /api/v1/memberships/:membershipId` | Recipient/admin | Permissions, phone, alert preferences, emergency flag | `200` membership |
+| `DELETE /api/v1/memberships/:membershipId` | Recipient/admin | None | `204` revoked membership |
+| `GET /api/v1/care-recipients/:recipientId/presence` | Membership | None | `200` last-active summaries; never exact location |
 
-#### `GET /api/v1/care-circle`
-- **Auth**: Protected
-- **Response (200 OK)**:
-  ```json
-  {
-    "success": true,
-    "data": [
-      {
-        "id": "member-1",
-        "name": "Sarah Vance",
-        "relation": "Daughter",
-        "role": "family",
-        "phone": "(503) 555-0192",
-        "email": "sarah.vance@example.com",
-        "isEmergencyContact": true,
-        "canManageMeds": true,
-        "receiveInstantAlerts": true,
-        "avatarUrl": "https://images.unsplash.com/...",
-        "lastActive": "12 minutes ago"
-      }
-    ]
-  }
-  ```
+Permission changes require audit records and cannot allow a family member to edit clinical orders unless explicitly configured by policy.
 
-#### `POST /api/v1/care-circle/invite`
-- **Auth**: Protected (Elderly or Family Admin)
-- **Request Body**:
-  ```json
-  {
-    "name": "David Vance",
-    "relation": "Son",
-    "role": "family",
-    "phone": "(503) 555-0163",
-    "email": "david.vance@example.com",
-    "isEmergencyContact": false,
-    "canManageMeds": true,
-    "receiveInstantAlerts": true
-  }
-  ```
-- **Response (201 Created)**: Creates member record with `invite_status: 'invited'` and triggers an invitation email via Resend.
+### 3.7 Notifications and emergency alerts
 
-#### `POST /api/v1/care-circle/emergency-broadcast`
-- **Auth**: Protected
-- **Request Body**:
-  ```json
-  {
-    "reason": "Direct SOS button triggered from application banner",
-    "latitude": 45.5152,
-    "longitude": -122.6784
-  }
-  ```
-- **Response (200 OK)**:
-  ```json
-  {
-    "success": true,
-    "data": {
-      "alertId": "urgent-98721",
-      "dispatchedSmsCount": 3,
-      "dispatchedEmailsCount": 3,
-      "timestamp": "2026-11-15T12:05:00Z"
-    }
-  }
-  ```
+| Method & route | Auth | Request/query | Response |
+|---|---|---|---|
+| `GET /api/v1/care-recipients/:recipientId/notifications` | Membership | `unread`, `limit`, cursor | `200` notification list |
+| `POST /api/v1/notifications/:notificationId/read` | Notification recipient | None | `200` notification |
+| `POST /api/v1/care-recipients/:recipientId/notifications/read-all` | Notification recipient | None | `204` |
+| `POST /api/v1/care-recipients/:recipientId/emergency-alerts` | Recipient/member | `{ reason, channels, idempotencyKey }` | `202` alert with delivery status |
+| `GET /api/v1/emergency-alerts/:alertId` | Membership | None | `200` alert and delivery status |
+| `POST /api/v1/emergency-alerts/:alertId/acknowledge` | Recipient/member | None | `200` acknowledgement |
+| `POST /api/v1/emergency-alerts/:alertId/resolve` | Authorized member | `{ note }` | `200` resolved alert |
 
----
+An SOS endpoint must return quickly with `202`; provider delivery happens asynchronously. The API must clearly state that it does not replace local emergency services.
 
-### Module 5: Appointments & Clinical Logistics
+### 3.8 Assistant
 
-#### `GET /api/v1/appointments`
-- **Auth**: Protected
-- **Query Params**: `?status=upcoming`
-- **Response (200 OK)**: Returns list of `Appointment` objects ordered by `appointment_date ASC`.
+#### Compatibility endpoint
 
-#### `POST /api/v1/appointments`
-- **Auth**: Protected
-- **Request Body**:
-  ```json
-  {
-    "doctorName": "Dr. Robert Hayes, MD",
-    "specialty": "Geriatric Cardiology",
-    "facility": "St. Jude Health & Wellness Pavilion",
-    "address": "1100 NW Medical Dr, Suite 304, Portland, OR",
-    "date": "2026-11-19",
-    "time": "10:30 AM",
-    "notes": "Routine blood pressure checkup. Bring pill organizer.",
-    "contactNumber": "(503) 555-0144",
-    "requiresEscort": true,
-    "assignedEscort": "Sarah Vance (Daughter)"
-  }
-  ```
-- **Response (201 Created)**: Returns created appointment record.
+`POST /api/assistant` remains available for the current frontend.
 
----
+Authentication: Protected. The request may contain `{ message, context }` for backward compatibility, but the server must ignore `context` for authorization and retrieve all care data from the authenticated session and selected recipient.
 
-### Module 6: Context-Aware Intelligent Care Assistant
+Request:
 
-#### `POST /api/v1/assistant/chat`
-- **Auth**: Protected
-- **Request Body**:
-  ```json
-  {
-    "message": "What pills do I have left to take today?",
-    "stream": false
-  }
-  ```
-- **Response (200 OK)**:
-  ```json
-  {
-    "success": true,
-    "data": {
-      "reply": "Margaret, you have 1 medication remaining today: Glucosamine Sulfate (750 mg) scheduled for 1:00 PM after lunch.",
-      "suggestedActions": [
-        { "label": "I Took This Now", "action": "mark_dose_taken", "payload": { "doseId": "dose-3" } }
-      ],
-      "contextSnapshot": {
-        "pendingDoseCount": 1,
-        "nextDoseTime": "01:00 PM",
-        "nextAppointmentDate": "2026-11-19"
-      }
-    }
-  }
-  ```
+```json
+{
+  "message": "What pills are left for today?",
+  "careRecipientId": "uuid"
+}
+```
 
----
+Response must preserve the current shape:
+
+```json
+{
+  "reply": "You have two pending doses...",
+  "suggestedActions": [
+    { "label": "View today's doses", "action": "view_meds", "payload": { "route": "/medications" } }
+  ]
+}
+```
+
+Return `200` for a safe assistant response, `400` for malformed input, `401` for unauthenticated requests, `403` for inaccessible recipients, `429` for rate limits, and `503` only when no safe fallback response is available.
+
+#### Versioned endpoint
+
+`POST /api/v1/care-recipients/:recipientId/assistant/messages` accepts `{ conversationId?, message }` and returns `{ data: { conversationId, message, suggestedActions } }`. It must log intent/refusal metadata, not unnecessarily retain raw PHI.
+
+Supported safe intents: pending doses, dose instructions, upcoming appointments, care-circle contacts, notification status, and navigation. Safety intents including diagnosis, changing/stopping medication, double dosing, or interpreting symptoms must return a refusal with clinician/emergency escalation guidance.
+
+### 3.9 Health and operations
+
+- `GET /api/health/live` — public/internal liveness, no secrets.
+- `GET /api/health/ready` — internal readiness for database/queue dependencies.
+- `POST /api/webhooks/resend` — provider-signed delivery webhook.
+- `POST /api/webhooks/twilio` — provider-authenticated delivery/status webhook.
+- `POST /api/jobs/generate-doses` — internal cron only, authenticated by `CRON_SECRET`; idempotently creates dose logs.
 
 ## 4. Authentication, Authorization & Security
 
-### 1. Authentication Strategy
-- **Mechanism**: JSON Web Tokens (JWT) powered by Supabase Auth (or standalone GoTrue instance).
-- **Tokens**:
-  - `access_token`: Short-lived (15 minutes), digitally signed with `HMAC-SHA256` or `RS256`. Contains `sub` (User UUID), `role` (`elderly`, `family`, `caretaker`), and `aud` (`authenticated`).
-  - `refresh_token`: Long-lived (30 days), stored with `HttpOnly`, `SameSite=Lax`, `Secure` cookies. Revocable in PostgreSQL session store.
-- **Header Format**: `Authorization: Bearer <access_token>`.
+### Authentication strategy
 
----
+Use Supabase Auth with server-managed secure cookies. The request pipeline should:
 
-### 2. Role-Based Access Control (RBAC) Matrix
+1. Resolve the session using `@supabase/ssr`.
+2. Reject expired or missing sessions with `401`.
+3. Resolve the requested care recipient and active membership.
+4. Apply endpoint-specific policy checks.
+5. Write an audit event for sensitive reads and all mutations.
 
-| Domain / Resource | Action | Elderly Recipient | Family Member | Professional Caretaker |
-| :--- | :--- | :---: | :---: | :---: |
-| **Own Profile** | Read / Update | **ALLOW** | **ALLOW** | Read Only |
-| **Medications** | View Prescriptions | **ALLOW** | **ALLOW** | **ALLOW** |
-| **Medications** | Add / Edit / Delete | **ALLOW** | If `can_manage_meds` | If `can_manage_meds` |
-| **Dose Schedules** | Mark Taken / Missed | **ALLOW** | **ALLOW** | **ALLOW** |
-| **Care Circle** | View Members | **ALLOW** | **ALLOW** | **ALLOW** |
-| **Care Circle** | Invite / Remove | **ALLOW** | **ALLOW** (Admin) | **DENY** |
-| **Emergency SOS** | Trigger Alert Broadcast | **ALLOW** | **ALLOW** | **ALLOW** |
-| **Appointments** | Create / Reschedule | **ALLOW** | **ALLOW** | **ALLOW** |
-| **AI Assistant** | Query Context Engine | **ALLOW** | **ALLOW** | **ALLOW** |
+Do not place service-role keys in browser code. Use the service-role client only inside isolated jobs/admin operations, with explicit recipient scoping and audit logging.
 
----
+### RBAC and policy rules
 
-### 3. PostgreSQL Row-Level Security (RLS) Implementation
+- **Elderly/recipient:** View and confirm own doses; manage own preferences; trigger SOS; manage appointments and medications if enabled by policy.
+- **Family member:** View assigned recipient data; call contacts; confirm doses only if membership permits; manage medications only when `can_manage_medications=true`; receive configured notifications.
+- **Caretaker/nurse:** View assigned care plans, record dose status, manage medication records when authorized, record appointment updates; no prescription changes without explicit permission.
+- **Physician:** View assigned recipient records and clinician notes only within a consented relationship; write prescription instructions through a separate audited workflow if implemented.
+- **Admin/compliance:** Operational support with least privilege, break-glass access requiring reason and enhanced audit logging.
 
-To ensure database-level isolation between care groups:
+RLS policies must be deny-by-default and based on accepted memberships. Every query must constrain by `care_recipient_id`; never trust a client-provided role or recipient ID without checking membership.
 
-```sql
--- Enable RLS across healthcare tables
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.medications ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.dose_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.care_circle_members ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.appointments ENABLE ROW LEVEL SECURITY;
+### Security hardening
 
--- 1. Helper function: Returns all elderly user IDs accessible by current auth user
-CREATE OR REPLACE FUNCTION public.accessible_elderly_ids()
-RETURNS SETOF UUID AS $$
-BEGIN
-  RETURN QUERY
-    SELECT elderly_user_id 
-    FROM public.care_circle_members
-    WHERE member_user_id = auth.uid()
-    UNION
-    SELECT auth.uid();
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+- Zod validation and canonicalization on every input; reject unknown fields for sensitive mutations.
+- Parameterized SQL/ORM queries; never interpolate user input into SQL or provider URLs.
+- CSRF protection for cookie-authenticated state-changing requests; same-origin checks and CSRF token where required.
+- Strict CORS allowlist if any separate origin is introduced; otherwise same-origin only.
+- Security headers: CSP, HSTS in production, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, and frame protection.
+- Rate limits by user/IP/recipient for login, assistant, invitations, SMS, and SOS. Add abuse controls without blocking emergency escalation.
+- Encrypt sensitive fields where required, redact PHI from logs, and configure retention/deletion policies.
+- Verify Resend/Twilio webhook signatures and make webhook processing idempotent.
+- Require explicit SMS/email consent, unsubscribe handling, and quiet hours except for configured urgent alerts.
+- Use optimistic concurrency/version checks for medication and appointment edits.
+- Never let AI output alter medication data or clinical instructions.
+- Configure backups, point-in-time recovery, incident response, access reviews, and dependency scanning.
 
--- 2. Medication Policy: Access only if own medication or in verified Care Circle
-CREATE POLICY "Medication Access Policy" 
-ON public.medications FOR ALL
-USING (user_id IN (SELECT public.accessible_elderly_ids()));
+## 5. State Synchronization, Real-time & WebSockets (If Applicable)
 
--- 3. Dose Logs Policy: Read & Write for authorized users
-CREATE POLICY "Dose Log Access Policy"
-ON public.dose_logs FOR ALL
-USING (user_id IN (SELECT public.accessible_elderly_ids()));
-```
+### Initial load and mutation flow
 
----
+1. `CareProvider` requests `/dashboard` after session resolution.
+2. The server returns normalized records mapped to the existing frontend shape.
+3. Mutations call the corresponding endpoint with an idempotency key.
+4. The server commits the transaction, writes an audit event, enqueues notifications, and returns authoritative state.
+5. The frontend replaces or merges local state using the response; localStorage must not be the source of truth for PHI.
 
-### 4. Security Hardening Measures
-1. **Clinical AI Guardrails**:
-   - The AI Assistant system prompt injects strict medical directives:
-     ```text
-     CRITICAL MEDICAL SAFEGUARD:
-     1. Never advise altering prescribed drug dosages.
-     2. Never advise doubling up on missed doses.
-     3. Never offer a diagnostic opinion or symptom prognosis.
-     4. For any adverse reaction or doubt, direct the patient to their primary physician or emergency contact.
-     ```
-   - Pre-computation classifier regex flags queries containing terms like `double dose`, `change mg`, `stop pill`, intercepting and returning compliant fallback recommendations before triggering the LLM.
-2. **Rate Limiting**:
-   - Tiered sliding-window rate limiting via Redis / Upstash:
-     - Public Auth Endpoints: 10 requests / minute per IP.
-     - Assistant Chat: 20 requests / minute per user.
-     - General Core APIs: 120 requests / minute per user.
-3. **Data Sanitization & Input Validation**:
-   - All inbound payloads validated via **Zod** schemas matching TypeScript interfaces.
-   - HTML injection stripped from notes, instructions, and messages using DOMPurify / sanitize-html.
-4. **Audit Trail Logging**:
-   - Every medication change, dose marking, and emergency trigger writes an immutable record to an `audit_events` table documenting `{ actor_id, target_id, action, ip_address, timestamp }`.
+### Real-time channels
 
----
+Use authenticated Supabase Realtime channels:
 
-## 5. State Synchronization, Real-time & WebSockets
+- `care-recipient:{recipientId}:doses` — dose status changes and adherence changes.
+- `care-recipient:{recipientId}:notifications:{userId}` — recipient-specific notifications.
+- `care-recipient:{recipientId}:appointments` — appointment create/update/cancel.
+- `care-recipient:{recipientId}:members` — invitation, permission, and presence changes.
+- `care-recipient:{recipientId}:alerts` — emergency alert status and acknowledgements.
 
-### 1. Real-Time Architecture
+RLS/channel authorization must ensure a member can subscribe only to recipients they are allowed to view. Send minimal event payloads and refetch the authoritative record when needed.
 
-```mermaid
-flowchart TD
-    Client["Next.js Frontend (Senior / Family)"]
-    SupabaseRealtime["Supabase Realtime (WebSocket)"]
-    PostgresDB[(PostgreSQL Database)]
-    CronWorker["Background Cron Worker (BullMQ / pg_cron)"]
-    ResendTwilio["Resend Email & Twilio SMS"]
+### Background jobs
 
-    Client -->|1. Mark Dose Taken / SOS| PostgresDB
-    PostgresDB -->|2. WAL Replication| SupabaseRealtime
-    SupabaseRealtime -->|3. Broadcast State Change| Client
-    
-    CronWorker -->|4. Detect Missed Dose (T + 30m)| PostgresDB
-    PostgresDB -->|5. Insert Notification Event| PostgresDB
-    CronWorker -->|6. Trigger Escalation| ResendTwilio
-```
+- Generate daily dose logs from active medications in each recipient timezone; unique constraints make retries safe.
+- Send upcoming-dose reminders according to notification preferences.
+- Detect overdue/missed doses using a grace period and create one escalation event per dose.
+- Send refill reminders when remaining supply crosses a configured threshold.
+- Send appointment reminders at configured intervals and update completed/cancelled state.
+- Retry provider failures with exponential backoff and dead-letter handling.
+- Purge expired assistant content and old delivery payloads according to retention policy.
 
-### 2. Automated Background Jobs
+### Event/outbox pattern
 
-#### Job A: Daily Dose Generation (`00:01 AM User Local Time`)
-- **Worker**: `generateDailyDoseSlots`
-- **Schedule**: Cron `1 0 * * *`
-- **Logic**:
-  1. Iterates over active prescriptions in `medications` where `active = TRUE` and current date is between `start_date` and `end_date`.
-  2. For each time in `schedule_times`, verifies no duplicate exists and inserts a `dose_logs` row with status `pending`.
-
-#### Job B: Missed Dose Evaluation Engine (`Every 10 Minutes`)
-- **Worker**: `evaluateMissedDoses`
-- **Schedule**: Cron `*/10 * * * *`
-- **Logic**:
-  1. Queries all `dose_logs` where `status = 'pending'`, `scheduled_date = CURRENT_DATE`, and `scheduled_time < NOW() - INTERVAL '30 MINUTES'`.
-  2. Transitions status from `pending` -> `missed`.
-  3. Inserts an urgent notification in `care_notifications`.
-  4. Triggers `sendCareNotificationEmail` to Care Circle members with `receive_instant_alerts = TRUE`.
-  5. If flagged as high-risk cardiac/diabetic medication, sends Twilio SMS to primary emergency contact.
-
-#### Job C: Low-Supply Refill Monitor (`Daily at 08:00 AM`)
-- **Worker**: `checkPrescriptionRefills`
-- **Logic**: Identifies medications where `refill_count <= 7`. Emits warning notification to Care Circle to order pharmacy replenishment.
-
----
+Every notification-worthy transaction writes an outbox row in the same database transaction. A worker claims outbox rows with a lease, sends provider messages, records delivery results, and publishes a Realtime event. This prevents a successful dose mutation from losing its alert because a provider was temporarily unavailable.
 
 ## 6. Environment Variables & Configuration
 
-Below is the definitive environment variable matrix required for production deployment:
+### Application and database
 
-```bash
-# ==========================================
-# APPLICATION & SERVER
-# ==========================================
-NODE_ENV=production
-PORT=3005
-NEXT_PUBLIC_APP_URL=https://lifora.care
-API_BASE_URL=https://lifora.care/api/v1
-
-# ==========================================
-# DATABASE (PostgreSQL / Supabase)
-# ==========================================
-DATABASE_URL=postgresql://postgres:[PASSWORD]@db.[REF].supabase.co:5432/postgres?pgbouncer=true
-DIRECT_URL=postgresql://postgres:[PASSWORD]@db.[REF].supabase.co:5432/postgres
-NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOi...
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOi...
-
-# ==========================================
-# AUTHENTICATION & SECURITY
-# ==========================================
-JWT_SECRET=super-secure-high-entropy-jwt-secret-key-32-chars-min
-SESSION_SECRET=super-secure-cookie-encryption-key
-CORS_ALLOWED_ORIGINS=https://lifora.care,http://localhost:3005
-
-# ==========================================
-# NOTIFICATION SERVICES
-# ==========================================
-RESEND_API_KEY=re_123456789_abcdefghijk
-RESEND_FROM_EMAIL=LIFORA Care Alerts <alerts@lifora.care>
-
-TWILIO_ACCOUNT_SID=ACXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-TWILIO_AUTH_TOKEN=your_twilio_auth_token
-TWILIO_PHONE_NUMBER=+15035550199
-
-# ==========================================
-# CACHE & QUEUE (Redis / Upstash)
-# ==========================================
-REDIS_URL=rediss://default:[PASSWORD]@[HOST].upstash.io:6379
-
-# ==========================================
-# INTELLIGENT CARE ASSISTANT (LLM)
-# ==========================================
-OPENAI_API_KEY=sk-proj-XXXXXXXXXXXXXXXXXXXXXXXX
-# Or Anthropic Claude:
-ANTHROPIC_API_KEY=sk-ant-api03-XXXXXXXXXXXXXXXX
-AI_MODEL_NAME=gpt-4o-mini
+```env
+NODE_ENV=development|test|production
+NEXT_PUBLIC_APP_URL=http://localhost:3005
+NEXT_PUBLIC_SUPABASE_URL=https://project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=public-anon-key
+SUPABASE_SERVICE_ROLE_KEY=server-only-service-role-key
+DATABASE_URL=postgresql://application-user:password@host:5432/postgres
+DIRECT_URL=postgresql://migration-user:password@host:5432/postgres
 ```
 
----
+`SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, and `DIRECT_URL` must never be exposed to the client. Use a restricted application DB role where possible.
+
+### Auth, security, and jobs
+
+```env
+SESSION_COOKIE_NAME=lifora-session
+CSRF_SECRET=long-random-secret
+ENCRYPTION_KEY=32-byte-key-for-application-field-encryption
+CRON_SECRET=long-random-cron-secret
+INTERNAL_API_SECRET=internal-service-auth-secret
+UPSTASH_REDIS_REST_URL=https://...
+UPSTASH_REDIS_REST_TOKEN=...
+```
+
+### Messaging
+
+```env
+RESEND_API_KEY=re_...
+RESEND_FROM_EMAIL=notifications@verified-domain.example
+TWILIO_ACCOUNT_SID=AC...
+TWILIO_AUTH_TOKEN=server-only-token
+TWILIO_MESSAGING_SERVICE_SID=MG...
+TWILIO_WEBHOOK_AUTH_TOKEN=...
+```
+
+### Assistant and observability
+
+```env
+OPENAI_API_KEY=optional-server-only-key
+OPENAI_MODEL=optional-approved-model
+GEMINI_API_KEY=optional-server-only-key
+SENTRY_DSN=https://...
+SENTRY_AUTH_TOKEN=server-only-token
+OTEL_EXPORTER_OTLP_ENDPOINT=https://...
+LOG_LEVEL=info
+```
+
+### Feature and compliance configuration
+
+```env
+ASSISTANT_PROVIDER=rules|openai|gemini
+ASSISTANT_MAX_REQUESTS_PER_MINUTE=20
+DOSE_REMINDER_GRACE_MINUTES=60
+REFILL_WARNING_DAYS=7
+PHI_RETENTION_DAYS=3650
+ENABLE_SMS_NOTIFICATIONS=false
+ENABLE_REALTIME=true
+```
+
+Secrets must be stored in the deployment secret manager, rotated regularly, and separately configured for development, staging, and production. `.env.example` may contain names and safe placeholders only.
 
 ## 7. Recommended Repository File Structure
 
-A clean, modular, production-ready directory tree for the backend service:
-
-```
+```text
 lifora/
-├── prisma/
-│   ├── schema.prisma                  # Complete declarative Prisma schema
-│   ├── migrations/                    # Versioned SQL migration files
-│   └── seed.ts                        # Clinically realistic Margaret Vance seed script
-│
+├── backend-spec.md
 ├── src/
-│   ├── app/                           # Next.js 15 App Router presentation & APIs
+│   ├── app/
 │   │   ├── api/
+│   │   │   ├── assistant/
+│   │   │   │   └── route.ts                 # Backward-compatible assistant contract
 │   │   │   ├── v1/
-│   │   │   │   ├── auth/              # Signup, login, refresh, session routes
-│   │   │   │   │   ├── login/route.ts
-│   │   │   │   │   └── signup/route.ts
-│   │   │   │   ├── medications/       # CRUD endpoints for prescriptions
-│   │   │   │   │   ├── route.ts
-│   │   │   │   │   └── [id]/route.ts
-│   │   │   │   ├── doses/             # Dosing logs, mark taken/missed endpoints
-│   │   │   │   │   ├── today/route.ts
-│   │   │   │   │   └── [id]/
-│   │   │   │   │       ├── take/route.ts
-│   │   │   │   │       └── miss/route.ts
-│   │   │   │   ├── appointments/      # Clinical consultation manager
-│   │   │   │   │   └── route.ts
-│   │   │   │   ├── care-circle/       # Member management & emergency broadcasts
-│   │   │   │   │   ├── route.ts
-│   │   │   │   │   ├── invite/route.ts
-│   │   │   │   │   └── emergency-broadcast/route.ts
-│   │   │   │   ├── notifications/     # Notification streams and read markers
-│   │   │   │   │   └── route.ts
-│   │   │   │   └── assistant/         # Context-aware chat with medical safeguards
-│   │   │   │       └── chat/route.ts
-│   │   │   └── cron/                  # Scheduled background task trigger webhooks
-│   │   │       ├── daily-doses/route.ts
-│   │   │       └── missed-dose-check/route.ts
-│   │   └── (frontend pages & layouts)
-│   │
-│   ├── server/                        # Encapsulated backend business logic
-│   │   ├── services/                  # Domain services
-│   │   │   ├── medication.service.ts  # Medication business rules & refills
-│   │   │   ├── dose.service.ts        # Dose evaluation & streak calculations
-│   │   │   ├── notification.service.ts# Multi-channel routing (Email, SMS, Push)
-│   │   │   ├── appointment.service.ts # Scheduling & escort coordination
-│   │   │   └── assistant.service.ts   # LLM orchestration & medical safeguards
-│   │   ├── repositories/              # Direct database abstraction layer
-│   │   │   ├── medication.repo.ts
-│   │   │   ├── dose.repo.ts
-│   │   │   └── user.repo.ts
-│   │   ├── security/                  # RBAC, rate-limiting & validation guardrails
-│   │   │   ├── rbac.ts
-│   │   │   ├── rateLimiter.ts
-│   │   │   └── medicalGuardrails.ts
-│   │   └── jobs/                      # BullMQ / Queue definitions
-│   │       ├── queue.ts
-│   │       └── workers/
-│   │           ├── missedDoseWorker.ts
-│   │           └── reminderWorker.ts
-│   │
-│   ├── lib/                           # Shared infrastructure clients
-│   │   ├── db.ts                      # Prisma client singleton
-│   │   ├── supabase/                  # Supabase clients & raw SQL schemas
-│   │   ├── email/                     # Resend API email templates
+│   │   │   │   ├── auth/
+│   │   │   │   ├── me/
+│   │   │   │   ├── care-recipients/
+│   │   │   │   │   └── [recipientId]/
+│   │   │   │   │       ├── route.ts
+│   │   │   │   │       ├── dashboard/route.ts
+│   │   │   │   │       ├── medications/route.ts
+│   │   │   │   │       ├── doses/today/route.ts
+│   │   │   │   │       ├── appointments/route.ts
+│   │   │   │   │       ├── members/route.ts
+│   │   │   │   │       ├── notifications/route.ts
+│   │   │   │   │       ├── emergency-alerts/route.ts
+│   │   │   │   │       └── assistant/messages/route.ts
+│   │   │   │   ├── medications/[medicationId]/route.ts
+│   │   │   │   ├── doses/[doseId]/taken/route.ts
+│   │   │   │   ├── doses/[doseId]/missed/route.ts
+│   │   │   │   ├── appointments/[appointmentId]/route.ts
+│   │   │   │   ├── memberships/[membershipId]/route.ts
+│   │   │   │   ├── notifications/[notificationId]/read/route.ts
+│   │   │   │   ├── emergency-alerts/[alertId]/route.ts
+│   │   │   │   └── health/
+│   │   │   └── webhooks/
+│   │   │       ├── resend/route.ts
+│   │   │       └── twilio/route.ts
+│   │   └── jobs/
+│   │       └── generate-doses/route.ts
+│   ├── server/
+│   │   ├── config.ts                         # Zod-validated environment
+│   │   ├── auth/
+│   │   │   ├── session.ts
+│   │   │   ├── permissions.ts
+│   │   │   └── rbac.ts
+│   │   ├── db/
+│   │   │   ├── client.ts
+│   │   │   ├── repositories/
+│   │   │   └── types.ts
+│   │   ├── validation/
+│   │   ├── services/
+│   │   │   ├── dashboard.service.ts
+│   │   │   ├── medication.service.ts
+│   │   │   ├── dose.service.ts
+│   │   │   ├── appointment.service.ts
+│   │   │   ├── care-circle.service.ts
+│   │   │   ├── notification.service.ts
+│   │   │   ├── emergency.service.ts
+│   │   │   └── assistant.service.ts
+│   │   ├── jobs/
+│   │   │   ├── outbox.worker.ts
+│   │   │   ├── reminder.worker.ts
+│   │   │   └── refill.worker.ts
+│   │   ├── integrations/
 │   │   │   ├── resend.ts
-│   │   │   └── templates/
-│   │   │       ├── MissedDoseAlert.tsx
-│   │   │       └── CareInvite.tsx
-│   │   ├── sms/                       # Twilio SMS client
-│   │   │   └── twilio.ts
-│   │   └── utils.ts
-│   │
-│   └── types/                         # Shared TypeScript definitions
-│       ├── index.ts                   # Core domain types
-│       └── api.ts                     # API request/response contracts
-│
-├── tests/                             # Automated testing suites
-│   ├── unit/                          # Business logic & safeguard unit tests
-│   │   └── medicalGuardrails.test.ts
-│   └── integration/                   # API endpoint integration tests
-│       ├── medications.test.ts
-│       └── doses.test.ts
-│
-├── .env.example                       # Verified environment template
-├── backend-spec.md                    # This architecture specification
-├── tsconfig.json
+│   │   │   ├── twilio.ts
+│   │   │   ├── supabase-realtime.ts
+│   │   │   └── ai-provider.ts
+│   │   ├── audit/
+│   │   └── http/
+│   │       ├── errors.ts
+│   │       ├── request-id.ts
+│   │       └── rate-limit.ts
+│   ├── lib/
+│   │   └── supabase/
+│   │       ├── browser.ts
+│   │       └── server.ts
+│   └── types/
+│       ├── api.ts
+│       └── domain.ts
+├── supabase/
+│   ├── migrations/
+│   │   ├── 0001_extensions_and_types.sql
+│   │   ├── 0002_profiles_and_recipients.sql
+│   │   ├── 0003_medications_and_doses.sql
+│   │   ├── 0004_appointments_and_circle.sql
+│   │   ├── 0005_notifications_and_audit.sql
+│   │   └── 0006_rls_and_functions.sql
+│   ├── seed.sql
+│   └── functions/
+│       ├── generate-doses/
+│       └── notify-outbox/
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   ├── contract/
+│   ├── security/
+│   └── e2e/
+├── .env.example
+├── openapi.yaml
 └── package.json
 ```
+
+The implementation should ship with OpenAPI-generated contracts, database migration tests, RLS policy tests, assistant safety tests, idempotency tests for dose mutations, provider webhook tests, and end-to-end tests covering senior, family, and caretaker permissions.
