@@ -150,3 +150,34 @@ export const SnoozeDoseSchema = z.object({
 export type SnoozeDoseInput = z.infer<typeof SnoozeDoseSchema>;
 
 // ====================================================================
+// 5. Care Circle Schemas
+// ====================================================================
+
+export const InviteCareCircleMemberSchema = z.object({
+  name: z.string().min(2, 'Full name is required'),
+  relation: z.enum(['Daughter', 'Son', 'Spouse', 'Primary Caregiver', 'Home Nurse', 'Physician', 'Neighbor']),
+  role: z.enum(['family', 'caretaker']),
+  phone: z.string().min(7, 'Valid telephone number is required'),
+  email: z.string().email('Valid email address is required'),
+  isEmergencyContact: z.boolean().default(false),
+  canManageMeds: z.boolean().default(true),
+  receiveInstantAlerts: z.boolean().default(true),
+});
+
+export type InviteCareCircleMemberInput = z.infer<typeof InviteCareCircleMemberSchema>;
+
+export const UpdateCareCircleMemberSchema = InviteCareCircleMemberSchema.partial().extend({
+  inviteStatus: z.enum(['invited', 'accepted', 'declined']).optional(),
+});
+
+export type UpdateCareCircleMemberInput = z.infer<typeof UpdateCareCircleMemberSchema>;
+
+export const EmergencyBroadcastSchema = z.object({
+  reason: z.string().min(1, 'Emergency reason is required'),
+  latitude: z.number().optional(),
+  longitude: z.number().optional(),
+});
+
+export type EmergencyBroadcastInput = z.infer<typeof EmergencyBroadcastSchema>;
+
+// ====================================================================
