@@ -52,3 +52,31 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 
 -- --------------------------------------------------------------------
+-- 3. POLICIES: PROFILES TABLE
+-- --------------------------------------------------------------------
+
+-- User can select their own profile OR profiles of members in their connected circle
+CREATE POLICY "Profiles view policy"
+ON public.profiles FOR SELECT
+USING (
+  id = auth.uid() OR
+  id IN (SELECT public.accessible_elderly_ids()) OR
+  EXISTS (
+    SELECT 1 FROM public.care_circle_members ccm
+    WHERE ccm.member_user_id = public.profiles.id
+      AND ccm.elderly_user_id = auth.uid()
+  )
+);
+
+-- User can update their own profile
+CREATE POLICY "Profiles update own policy"
+ON public.profiles FOR UPDATE
+USING (id = auth.uid())
+WITH CHECK (id = auth.uid());
+
+-- Initial profile creation during signup
+CREATE POLICY "Profiles insert policy"
+ON public.profiles FOR INSERT
+WITH CHECK (id = auth.uid());
+
+-- --------------------------------------------------------------------
