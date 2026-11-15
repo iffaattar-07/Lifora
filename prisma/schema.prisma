@@ -42,3 +42,35 @@ model Profile {
   @@index([phone])
   @@map("profiles")
 }
+
+// 2. MEDICATIONS (Prescription Registry)
+model Medication {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  name              String
+  genericName       String?   @map("generic_name")
+  dosage            String
+  form              String    @db.VarChar(30) // 'tablet', 'capsule', 'liquid', 'inhaler', 'injection', 'drops', 'topical'
+  color             String?   @default("#2E847D") @db.VarChar(20)
+  purpose           String
+  frequency         String    @db.VarChar(30) // 'daily', 'twice_daily', 'three_times_daily', 'four_times_daily', 'weekly', 'as_needed'
+  scheduleTimes     String[]  @default(["08:00 AM"]) @map("schedule_times")
+  withFood          String    @map("with_food") @db.VarChar(20) // 'before', 'with', 'after', 'anytime'
+  instructions      String    @default("")
+  prescribingDoctor String    @default("") @map("prescribing_doctor")
+  refillCount       Int       @default(0) @map("refill_count")
+  totalQuantity     Int       @default(30) @map("total_quantity")
+  active            Boolean   @default(true)
+  startDate         DateTime  @default(now()) @map("start_date") @db.Date
+  endDate           DateTime? @map("end_date") @db.Date
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  profile  Profile   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  doseLogs DoseLog[]
+
+  @@index([userId])
+  @@index([userId, active])
+  @@map("medications")
+}
