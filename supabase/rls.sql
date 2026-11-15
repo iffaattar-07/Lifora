@@ -167,3 +167,18 @@ USING (
 );
 
 -- --------------------------------------------------------------------
+-- 7. POLICIES: APPOINTMENTS TABLE
+-- --------------------------------------------------------------------
+
+-- Select: Patient and care circle can view appointments
+CREATE POLICY "Appointments select policy"
+ON public.appointments FOR SELECT
+USING (user_id IN (SELECT public.accessible_elderly_ids()));
+
+-- Insert / Update / Delete: Patient and care circle can coordinate visits
+CREATE POLICY "Appointments modify policy"
+ON public.appointments FOR ALL
+USING (user_id IN (SELECT public.accessible_elderly_ids()))
+WITH CHECK (user_id IN (SELECT public.accessible_elderly_ids()));
+
+-- --------------------------------------------------------------------
