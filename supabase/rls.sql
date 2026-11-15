@@ -80,3 +80,28 @@ ON public.profiles FOR INSERT
 WITH CHECK (id = auth.uid());
 
 -- --------------------------------------------------------------------
+-- 4. POLICIES: MEDICATIONS TABLE
+-- --------------------------------------------------------------------
+
+-- Select: Patient and authorized care circle can view prescriptions
+CREATE POLICY "Medications select policy"
+ON public.medications FOR SELECT
+USING (user_id IN (SELECT public.accessible_elderly_ids()));
+
+-- Insert: Patient or authorized caregiver can add new medication
+CREATE POLICY "Medications insert policy"
+ON public.medications FOR INSERT
+WITH CHECK (public.can_manage_medications(user_id));
+
+-- Update: Patient or authorized caregiver can edit medications
+CREATE POLICY "Medications update policy"
+ON public.medications FOR UPDATE
+USING (public.can_manage_medications(user_id))
+WITH CHECK (public.can_manage_medications(user_id));
+
+-- Delete: Patient or authorized caregiver can remove medications
+CREATE POLICY "Medications delete policy"
+ON public.medications FOR DELETE
+USING (public.can_manage_medications(user_id));
+
+-- --------------------------------------------------------------------
