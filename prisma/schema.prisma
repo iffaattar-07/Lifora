@@ -129,3 +129,28 @@ model CareCircleMember {
   @@index([memberUserId])
   @@map("care_circle_members")
 }
+
+// 5. APPOINTMENTS (Clinical Consultations & Escorts)
+model Appointment {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  doctorName      String   @map("doctor_name")
+  specialty       String
+  facility        String
+  address         String   @default("")
+  contactNumber   String   @default("") @map("contact_number") @db.VarChar(30)
+  appointmentDate DateTime @map("appointment_date") @db.Date
+  appointmentTime String   @map("appointment_time") @db.VarChar(30)
+  notes           String?
+  requiresEscort  Boolean  @default(true) @map("requires_escort")
+  assignedEscort  String?  @map("assigned_escort")
+  status          String   @default("upcoming") @db.VarChar(20) // 'upcoming', 'completed', 'rescheduled', 'cancelled'
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  profile Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, appointmentDate])
+  @@map("appointments")
+}
