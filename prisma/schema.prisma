@@ -154,3 +154,23 @@ model Appointment {
   @@index([userId, appointmentDate])
   @@map("appointments")
 }
+
+// 6. CARE NOTIFICATIONS (Multi-channel In-app & Broadcast Stream)
+model CareNotification {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  type        String   @db.VarChar(40) // 'medication_reminder', 'medication_missed', 'appointment', 'circle_update', 'system'
+  severity    String   @db.VarChar(20) // 'urgent', 'warning', 'info', 'success'
+  title       String
+  message     String
+  isRead      Boolean  @default(false) @map("is_read")
+  actionUrl   String?  @map("action_url")
+  actionLabel String?  @map("action_label")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  // Relations
+  profile Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt])
+  @@map("care_notifications")
+}
