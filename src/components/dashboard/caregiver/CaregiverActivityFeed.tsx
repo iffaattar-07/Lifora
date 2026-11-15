@@ -53,7 +53,7 @@ export function CaregiverActivityFeed() {
 
         {/* Timeline Items */}
         <div className="mt-4 space-y-4">
-          {recentActivities.slice(0, 5).map((act) => (
+          {(recentActivities || []).slice(0, 5).map((act) => (
             <div key={act.id} className="flex items-start gap-3.5 text-xs">
               <div className="w-8 h-8 rounded-xl bg-stone-100 flex items-center justify-center shrink-0 mt-0.5 border border-stone-200">
                 {getActionIcon(act.action)}
