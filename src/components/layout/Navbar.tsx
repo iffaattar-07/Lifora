@@ -64,7 +64,7 @@ export function Navbar() {
         <div className="bg-teal-900 text-teal-50 px-4 py-1.5 text-xs sm:text-sm font-medium flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Care Circle Active &bull; Monitored by {profile.emergencyContact.name} ({profile.emergencyContact.relationship})</span>
+            <span>Care Circle Active &bull; Monitored by {profile?.emergencyContact?.name || 'Sarah Vance'} ({profile?.emergencyContact?.relationship || 'Daughter'})</span>
           </div>
 
           <div className="flex items-center gap-4">
