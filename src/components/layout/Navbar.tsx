@@ -16,14 +16,23 @@ import {
   AlertTriangle,
   Menu,
   X,
-  Type
+  Type,
+  LogIn,
+  LogOut,
+  ShieldCheck
 } from 'lucide-react';
 import { useCare } from '@/context/CareContext';
+import { DemoLoginModal } from '@/components/auth/DemoLoginModal';
 
 export function Navbar() {
   const pathname = usePathname();
   const { 
     profile, 
+    currentUser,
+    isLoggedIn,
+    logout,
+    isLoginModalOpen,
+    setIsLoginModalOpen,
     activeRole, 
     setActiveRole, 
     fontSize, 
@@ -147,102 +156,135 @@ export function Navbar() {
 
             {/* Right Controls: Role Selector, Notifications & Profile */}
             <div className="flex items-center gap-3">
-              {/* Role Toggle Pill (Perspective Switcher) */}
-              <div 
-                className="hidden sm:flex items-center bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs shadow-inner"
-                title="Perspective Switcher (Demo View Mode - switches dashboard interface)"
-              >
-                <button
-                  onClick={() => setActiveRole('elderly')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition ${
-                    activeRole === 'elderly'
-                      ? 'bg-white text-teal-950 shadow-sm border border-stone-200'
-                      : 'text-stone-600 hover:text-stone-900'
-                  }`}
-                >
-                  <User className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Senior (Margaret)</span>
-                </button>
-                <button
-                  onClick={() => setActiveRole('family')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition ${
-                    activeRole === 'family' || activeRole === 'caretaker'
-                      ? 'bg-teal-800 text-white shadow-sm'
-                      : 'text-stone-600 hover:text-stone-900'
-                  }`}
-                >
-                  <Users className="w-3.5 h-3.5 text-teal-200" />
-                  <span>Caregiver (Sarah)</span>
-                </button>
-              </div>
-
-              {/* Notification Bell */}
-              <div className="relative">
-                <button
-                  onClick={() => setShowNotifications(!showNotifications)}
-                  className="relative p-2.5 rounded-xl text-stone-700 hover:bg-sage-100 transition border border-transparent hover:border-sage-200"
-                  aria-label="Care notifications"
-                >
-                  <Bell className="w-5 h-5" />
-                  {unreadCount > 0 && (
-                    <span className="absolute top-1.5 right-1.5 w-5 h-5 bg-rose-600 text-white text-[11px] font-bold rounded-full flex items-center justify-center ring-2 ring-white">
-                      {unreadCount}
-                    </span>
-                  )}
-                </button>
-
-                {/* Notifications Dropdown Panel */}
-                {showNotifications && (
-                  <div className="absolute right-0 mt-3 w-80 sm:w-96 bg-white rounded-2xl shadow-xl border border-stone-200 py-3 z-50">
-                    <div className="px-4 pb-2 border-b border-stone-100 flex items-center justify-between">
-                      <div>
-                        <h4 className="font-semibold text-stone-900 text-sm">Care Updates</h4>
-                        <p className="text-xs text-stone-500">{unreadCount} unread notices</p>
-                      </div>
-                      {unreadCount > 0 && (
-                        <button
-                          onClick={clearAllNotifications}
-                          className="text-xs text-teal-700 hover:text-teal-900 font-medium"
-                        >
-                          Mark all read
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="max-h-80 overflow-y-auto divide-y divide-stone-100">
-                      {notifications.length === 0 ? (
-                        <div className="p-6 text-center text-sm text-stone-500">
-                          No recent notifications
-                        </div>
-                      ) : (
-                        notifications.map((notif) => (
-                          <div
-                            key={notif.id}
-                            onClick={() => markNotificationAsRead(notif.id)}
-                            className={`p-3.5 hover:bg-sage-50/50 transition cursor-pointer flex gap-3 ${
-                              !notif.isRead ? 'bg-teal-50/40' : ''
-                            }`}
-                          >
-                            <div className="mt-0.5">
-                              {notif.severity === 'urgent' && <AlertTriangle className="w-4 h-4 text-rose-600" />}
-                              {notif.severity === 'warning' && <AlertTriangle className="w-4 h-4 text-amber-500" />}
-                              {notif.severity === 'success' && <CheckCircle className="w-4 h-4 text-emerald-600" />}
-                              {notif.severity === 'info' && <Bell className="w-4 h-4 text-teal-600" />}
-                            </div>
-                            <div className="flex-1">
-                              <p className="text-xs font-semibold text-stone-900">{notif.title}</p>
-                              <p className="text-xs text-stone-600 mt-0.5 leading-relaxed">{notif.message}</p>
-                              <span className="text-[10px] text-stone-400 mt-1 block">
-                                {new Date(notif.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </span>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
+              {/* If on landing page and not logged in */}
+              {!isLoggedIn && pathname === '/' ? (
+                <div className="flex items-center gap-2.5">
+                  <button
+                    onClick={() => setIsLoginModalOpen(true)}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-teal-900 bg-teal-50 hover:bg-teal-100 border border-teal-200/80 font-bold text-xs transition shadow-xs"
+                  >
+                    <LogIn className="w-4 h-4 text-teal-700" />
+                    <span>Demo Accounts</span>
+                  </button>
+                  <button
+                    onClick={() => setIsLoginModalOpen(true)}
+                    className="hidden sm:flex items-center gap-1.5 px-4 py-2 rounded-xl text-white bg-teal-800 hover:bg-teal-900 font-bold text-xs transition shadow-sm"
+                  >
+                    <span>Get Started</span>
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Role Toggle Pill (Perspective Switcher) */}
+                  <div 
+                    className="hidden sm:flex items-center bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs shadow-inner"
+                    title="Perspective Switcher (Demo View Mode - switches dashboard interface)"
+                  >
+                    <button
+                      onClick={() => setActiveRole('elderly')}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition ${
+                        activeRole === 'elderly'
+                          ? 'bg-white text-teal-950 shadow-sm border border-stone-200'
+                          : 'text-stone-600 hover:text-stone-900'
+                      }`}
+                    >
+                      <User className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Senior (Margaret)</span>
+                    </button>
+                    <button
+                      onClick={() => setActiveRole('family')}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition ${
+                        activeRole === 'family' || activeRole === 'caretaker'
+                          ? 'bg-teal-800 text-white shadow-sm'
+                          : 'text-stone-600 hover:text-stone-900'
+                      }`}
+                    >
+                      <Users className="w-3.5 h-3.5 text-teal-200" />
+                      <span>Caregiver (Sarah)</span>
+                    </button>
                   </div>
-                )}
-              </div>
+
+                  {/* Notification Bell */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowNotifications(!showNotifications)}
+                      className="relative p-2.5 rounded-xl text-stone-700 hover:bg-sage-100 transition border border-transparent hover:border-sage-200"
+                      aria-label="Care notifications"
+                    >
+                      <Bell className="w-5 h-5" />
+                      {unreadCount > 0 && (
+                        <span className="absolute top-1.5 right-1.5 w-5 h-5 bg-rose-600 text-white text-[11px] font-bold rounded-full flex items-center justify-center ring-2 ring-white">
+                          {unreadCount}
+                        </span>
+                      )}
+                    </button>
+
+                    {/* Notifications Dropdown Panel */}
+                    {showNotifications && (
+                      <div className="absolute right-0 mt-3 w-80 sm:w-96 bg-white rounded-2xl shadow-xl border border-stone-200 py-3 z-50">
+                        <div className="px-4 pb-2 border-b border-stone-100 flex items-center justify-between">
+                          <div>
+                            <h4 className="font-semibold text-stone-900 text-sm">Care Updates</h4>
+                            <p className="text-xs text-stone-500">{unreadCount} unread notices</p>
+                          </div>
+                          {unreadCount > 0 && (
+                            <button
+                              onClick={clearAllNotifications}
+                              className="text-xs text-teal-700 hover:text-teal-900 font-medium"
+                            >
+                              Mark all read
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="max-h-80 overflow-y-auto divide-y divide-stone-100">
+                          {notifications.length === 0 ? (
+                            <div className="p-6 text-center text-sm text-stone-500">
+                              No recent notifications
+                            </div>
+                          ) : (
+                            notifications.map((notif) => (
+                              <div
+                                key={notif.id}
+                                onClick={() => markNotificationAsRead(notif.id)}
+                                className={`p-3.5 hover:bg-sage-50/50 transition cursor-pointer flex gap-3 ${
+                                  !notif.isRead ? 'bg-teal-50/40' : ''
+                                }`}
+                              >
+                                <div className="mt-0.5">
+                                  {notif.severity === 'urgent' && <AlertTriangle className="w-4 h-4 text-rose-600" />}
+                                  {notif.severity === 'warning' && <AlertTriangle className="w-4 h-4 text-amber-500" />}
+                                  {notif.severity === 'success' && <CheckCircle className="w-4 h-4 text-emerald-600" />}
+                                  {notif.severity === 'info' && <Bell className="w-4 h-4 text-teal-600" />}
+                                </div>
+                                <div className="flex-1">
+                                  <p className="text-xs font-semibold text-stone-900">{notif.title}</p>
+                                  <p className="text-xs text-stone-600 mt-0.5 leading-relaxed">{notif.message}</p>
+                                  <span className="text-[10px] text-stone-400 mt-1 block">
+                                    {new Date(notif.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Quick Sign Out / Demo Exit */}
+                  {isLoggedIn && (
+                    <button
+                      onClick={logout}
+                      title="Log Out & Return to Landing Page"
+                      className="hidden sm:flex items-center gap-1 text-xs text-stone-500 hover:text-rose-600 p-2 rounded-xl hover:bg-rose-50 transition border border-transparent hover:border-rose-200"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      <span className="text-[11px] font-medium">Exit Demo</span>
+                    </button>
+                  )}
+                </>
+              )}
 
               {/* Mobile Menu Toggle Button */}
               <button
@@ -348,6 +390,12 @@ export function Navbar() {
           </div>
         </div>
       )}
+
+      {/* Demo Login Modal Accessible Across Navigation */}
+      <DemoLoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+      />
     </>
   );
 }
