@@ -125,3 +125,45 @@ USING (user_id IN (SELECT public.accessible_elderly_ids()))
 WITH CHECK (user_id IN (SELECT public.accessible_elderly_ids()));
 
 -- --------------------------------------------------------------------
+-- 6. POLICIES: CARE CIRCLE MEMBERS TABLE
+-- --------------------------------------------------------------------
+
+-- Select: Patient and members of the same care circle can view members
+CREATE POLICY "Care circle select policy"
+ON public.care_circle_members FOR SELECT
+USING (
+  elderly_user_id = auth.uid() OR
+  member_user_id = auth.uid() OR
+  elderly_user_id IN (SELECT public.accessible_elderly_ids())
+);
+
+-- Insert: Elderly patient or family admin can invite new members
+CREATE POLICY "Care circle insert policy"
+ON public.care_circle_members FOR INSERT
+WITH CHECK (
+  elderly_user_id = auth.uid() OR
+  EXISTS (
+    SELECT 1 FROM public.care_circle_members ccm
+    WHERE ccm.elderly_user_id = care_circle_members.elderly_user_id
+      AND ccm.member_user_id = auth.uid()
+      AND ccm.role = 'family'
+  )
+);
+
+-- Update: Elderly or member themselves can update permissions / invite status
+CREATE POLICY "Care circle update policy"
+ON public.care_circle_members FOR UPDATE
+USING (
+  elderly_user_id = auth.uid() OR
+  member_user_id = auth.uid()
+);
+
+-- Delete: Elderly or member can unlink membership
+CREATE POLICY "Care circle delete policy"
+ON public.care_circle_members FOR DELETE
+USING (
+  elderly_user_id = auth.uid() OR
+  member_user_id = auth.uid()
+);
+
+-- --------------------------------------------------------------------
