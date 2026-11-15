@@ -17,6 +17,7 @@ export const mockUserProfile: UserProfile = {
   bloodType: 'O+',
   role: 'elderly',
   avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=256',
+  phone: '(503) 555-0118',
   primaryCondition: ['Hypertension', 'Type 2 Diabetes (Managed)', 'Mild Osteoarthritis'],
   allergies: ['Penicillin', 'Sulfa drugs'],
   address: '428 Whispering Oaks Lane, Apt 3B, Portland, OR',

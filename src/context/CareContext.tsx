@@ -387,10 +387,6 @@ export function CareProvider({ children }: { children: React.ReactNode }) {
         triggerEmergencyAlert,
       }}
     >
-        clearAllNotifications,
-        triggerEmergencyAlert,
-      }}
-    >
       {children}
     </CareContext.Provider>
   );

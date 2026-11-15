@@ -9,6 +9,7 @@ export interface UserProfile {
   bloodType: string;
   role: UserRole;
   avatar?: string;
+  phone?: string;
   primaryCondition: string[];
   allergies: string[];
   address: string;
@@ -69,6 +70,7 @@ export interface DoseScheduleItem {
   scheduledDate: string; // "YYYY-MM-DD"
   status: DoseStatus;
   takenAt?: string;
+  missedReason?: string;
   recordedBy?: string; // e.g. "Margaret Vance (Self)", "Sarah Vance (Daughter)"
   updatedAt?: string;  // e.g. "08:15 AM"
   withFood: FoodRequirement;

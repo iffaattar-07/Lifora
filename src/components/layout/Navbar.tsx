@@ -175,10 +175,6 @@ export function Navbar() {
                   <span>Caregiver (Sarah)</span>
                 </button>
               </div>
-                  <Users className="w-3.5 h-3.5" />
-                  <span>Family & Caregiver</span>
-                </button>
-              </div>
 
               {/* Notification Bell */}
               <div className="relative">
