@@ -125,3 +125,28 @@ export const UpdateMedicationSchema = CreateMedicationSchema.partial().extend({
 export type UpdateMedicationInput = z.infer<typeof UpdateMedicationSchema>;
 
 // ====================================================================
+// 4. Dose Schemas
+// ====================================================================
+
+export const MarkDoseTakenSchema = z.object({
+  takenAt: z.string().optional(), // ISO string or time string
+  recordedBy: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+export type MarkDoseTakenInput = z.infer<typeof MarkDoseTakenSchema>;
+
+export const MarkDoseMissedSchema = z.object({
+  reason: z.string().min(1, 'Reason for missing dose is required'),
+  recordedBy: z.string().optional(),
+});
+
+export type MarkDoseMissedInput = z.infer<typeof MarkDoseMissedSchema>;
+
+export const SnoozeDoseSchema = z.object({
+  snoozeMinutes: z.number().int().min(5).max(180).default(15),
+});
+
+export type SnoozeDoseInput = z.infer<typeof SnoozeDoseSchema>;
+
+// ====================================================================
