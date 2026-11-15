@@ -1,0 +1,44 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// 1. PROFILES (Elderly, Family, Caretaker)
+model Profile {
+  id                String    @id @default(uuid()) @db.Uuid
+  email             String?   @unique
+  role              String    @db.VarChar(20) // 'elderly' | 'family' | 'caretaker'
+  fullName          String    @map("full_name")
+  preferredName     String    @map("preferred_name")
+  age               Int?
+  dob               DateTime? @db.Date
+  bloodType         String?   @map("blood_type") @db.VarChar(10)
+  avatarUrl         String?   @map("avatar_url")
+  phone             String?   @db.VarChar(30)
+  address           String?
+  timezone          String    @default("America/Los_Angeles") @db.VarChar(50)
+  primaryConditions String[]  @default([]) @map("primary_conditions")
+  knownAllergies    String[]  @default([]) @map("known_allergies")
+  emergencyContact  Json      @default("{}") @map("emergency_contact")
+  primaryPhysician  Json      @default("{}") @map("primary_physician")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  medications            Medication[]
+  doseLogs               DoseLog[]
+  appointments           Appointment[]
+  careCircleAsRecipient  CareCircleMember[] @relation("ElderlyRecipient")
+  careCircleAsMember     CareCircleMember[] @relation("MemberUser")
+  notifications          CareNotification[]
+  auditEvents            AuditEvent[]
+
+  @@index([role])
+  @@index([phone])
+  @@map("profiles")
+}
