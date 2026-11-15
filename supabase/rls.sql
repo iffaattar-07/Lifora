@@ -202,3 +202,27 @@ ON public.care_notifications FOR INSERT
 WITH CHECK (user_id IN (SELECT public.accessible_elderly_ids()));
 
 -- --------------------------------------------------------------------
+-- 9. POLICIES: AUDIT EVENTS TABLE (Write-only for users, immutable)
+-- --------------------------------------------------------------------
+
+-- Select: Patient and family members can view audit trail
+CREATE POLICY "Audit events select policy"
+ON public.audit_events FOR SELECT
+USING (user_id IN (SELECT public.accessible_elderly_ids()));
+
+-- Insert: System or user logging audit events
+CREATE POLICY "Audit events insert policy"
+ON public.audit_events FOR INSERT
+WITH CHECK (user_id IN (SELECT public.accessible_elderly_ids()));
+
+-- --------------------------------------------------------------------
+-- 10. SUPABASE REALTIME CONFIGURATION
+-- --------------------------------------------------------------------
+-- Ensure table changes publish to Supabase Realtime WebSockets for instant UI updates
+BEGIN;
+  DROP PUBLICATION IF EXISTS supabase_realtime;
+  CREATE PUBLICATION supabase_realtime FOR TABLE 
+    public.dose_logs, 
+    public.care_notifications, 
+    public.care_circle_members;
+COMMIT;
