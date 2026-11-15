@@ -1,0 +1,51 @@
+name: LIFORA CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate-and-test:
+    name: Lint, Typecheck, Test & Build
+    runs-on: ubuntu-latest
+
+    env:
+      NEXT_TELEMETRY_DISABLED: 1
+      NODE_ENV: test
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Run ESLint
+        run: pnpm run lint
+
+      - name: Run TypeScript Typecheck
+        run: pnpm run typecheck
+
+      - name: Run Vitest Suite with Coverage
+        run: pnpm run test:coverage
+
+      - name: Build Next.js Application
+        run: pnpm run build
+        env:
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
