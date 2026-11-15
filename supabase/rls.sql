@@ -182,3 +182,23 @@ USING (user_id IN (SELECT public.accessible_elderly_ids()))
 WITH CHECK (user_id IN (SELECT public.accessible_elderly_ids()));
 
 -- --------------------------------------------------------------------
+-- 8. POLICIES: CARE NOTIFICATIONS TABLE
+-- --------------------------------------------------------------------
+
+-- Select: Patient and care circle can view in-app notifications
+CREATE POLICY "Care notifications select policy"
+ON public.care_notifications FOR SELECT
+USING (user_id IN (SELECT public.accessible_elderly_ids()));
+
+-- Update: Patient and care circle can mark notifications as read
+CREATE POLICY "Care notifications update policy"
+ON public.care_notifications FOR UPDATE
+USING (user_id IN (SELECT public.accessible_elderly_ids()))
+WITH CHECK (user_id IN (SELECT public.accessible_elderly_ids()));
+
+-- Insert: Automated jobs, triggers or circle actions can insert notifications
+CREATE POLICY "Care notifications insert policy"
+ON public.care_notifications FOR INSERT
+WITH CHECK (user_id IN (SELECT public.accessible_elderly_ids()));
+
+-- --------------------------------------------------------------------
