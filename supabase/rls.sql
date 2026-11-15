@@ -105,3 +105,23 @@ ON public.medications FOR DELETE
 USING (public.can_manage_medications(user_id));
 
 -- --------------------------------------------------------------------
+-- 5. POLICIES: DOSE LOGS TABLE
+-- --------------------------------------------------------------------
+
+-- Select: Patient and care circle can view daily doses
+CREATE POLICY "Dose logs select policy"
+ON public.dose_logs FOR SELECT
+USING (user_id IN (SELECT public.accessible_elderly_ids()));
+
+-- Insert: Automated system or authorized care circle can insert dose slots
+CREATE POLICY "Dose logs insert policy"
+ON public.dose_logs FOR INSERT
+WITH CHECK (user_id IN (SELECT public.accessible_elderly_ids()));
+
+-- Update: Patient or caregiver can mark doses as taken/missed/snoozed
+CREATE POLICY "Dose logs update policy"
+ON public.dose_logs FOR UPDATE
+USING (user_id IN (SELECT public.accessible_elderly_ids()))
+WITH CHECK (user_id IN (SELECT public.accessible_elderly_ids()));
+
+-- --------------------------------------------------------------------
