@@ -74,3 +74,30 @@ model Medication {
   @@index([userId, active])
   @@map("medications")
 }
+
+// 3. DOSE LOGS (Daily Doses & Administration Status)
+model DoseLog {
+  id            String    @id @default(uuid()) @db.Uuid
+  medicationId  String    @map("medication_id") @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  scheduledDate DateTime  @map("scheduled_date") @db.Date
+  scheduledTime String    @map("scheduled_time") @db.VarChar(30) // e.g. "08:00 AM"
+  status        String    @default("pending") @db.VarChar(20) // 'pending' | 'taken' | 'missed' | 'snoozed'
+  takenAt       DateTime? @map("taken_at") @db.Timestamptz()
+  takenBy       String?   @map("taken_by") @db.Uuid
+  recordedBy    String?   @map("recorded_by")
+  missedReason  String?   @map("missed_reason")
+  snoozeUntil   DateTime? @map("snooze_until") @db.Timestamptz()
+  notes         String?
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  // Relations
+  medication Medication @relation(fields: [medicationId], references: [id], onDelete: Cascade)
+  profile    Profile    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([medicationId, scheduledDate, scheduledTime])
+  @@index([userId, scheduledDate])
+  @@index([status])
+  @@map("dose_logs")
+}
