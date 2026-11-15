@@ -69,6 +69,8 @@ export interface DoseScheduleItem {
   scheduledDate: string; // "YYYY-MM-DD"
   status: DoseStatus;
   takenAt?: string;
+  recordedBy?: string; // e.g. "Margaret Vance (Self)", "Sarah Vance (Daughter)"
+  updatedAt?: string;  // e.g. "08:15 AM"
   withFood: FoodRequirement;
   instructions?: string;
   purpose?: string;
@@ -144,3 +146,25 @@ export interface ChatMessage {
     payload?: Record<string, unknown>;
   }[];
 }
+
+export type CareActivityAction = 
+  | 'dose_taken' 
+  | 'dose_missed' 
+  | 'appointment_scheduled' 
+  | 'appointment_escort' 
+  | 'medication_added' 
+  | 'refill_requested' 
+  | 'vitals_logged'
+  | 'alert_acknowledged';
+
+export interface CareActivityItem {
+  id: string;
+  timestamp: string; // ISO string or human string
+  actorName: string;
+  actorRole: 'elderly' | 'family' | 'caretaker' | 'system';
+  action: CareActivityAction;
+  title: string;
+  description: string;
+  badge?: string;
+}
+
